@@ -105,10 +105,9 @@ module tb_riscvibe_top;
     $display("[%0t] Releasing reset...", $time);
     rst_n = 1'b1;
 
-    // Wait one more cycle for reset to propagate
+    // Wait one cycle for reset to propagate
     @(posedge clk);
-    $display("[%0t] Reset released, starting execution (PC=0x%h, instr=0x%h, rd=%d, reg_write=%b)",
-             $time, dut.pc, dut.instruction, dut.rd, dut.reg_write);
+    $display("[%0t] Reset released, starting execution", $time);
     $display("========================================");
   end
 

@@ -27,9 +27,18 @@ module riscvibe_top
   //============================================================================
   // Internal Signals - Instruction Fetch Stage
   //============================================================================
-  logic [31:0] pc;              // Current program counter
+  logic [31:0] pc;              // Current program counter (fetch address)
   logic [31:0] pc_plus_4;       // PC + 4 for sequential execution
-  logic [31:0] instruction;    // Fetched instruction
+  logic [31:0] instruction;     // Instruction from memory (synchronous)
+
+  //============================================================================
+  // Internal Signals - Write-back Pipeline Registers (for 2-stage pipeline)
+  //============================================================================
+  // With synchronous IMEM, we have a 2-stage pipeline. The write-back needs
+  // to be delayed by one cycle to avoid read-after-write hazards.
+  logic [4:0]  rd_wb;           // Destination register from previous cycle
+  logic [31:0] rd_data_wb;      // Write data from previous cycle
+  logic        reg_write_wb;    // Write enable from previous cycle
 
   //============================================================================
   // Internal Signals - Instruction Decode Stage
@@ -85,13 +94,10 @@ module riscvibe_top
   logic [31:0] jalr_target;
 
   //============================================================================
-  // Internal Signals - Write-back Pipeline Registers
+  // Internal Signals - Write-back (directly from current instruction)
   //============================================================================
-  // These registers ensure write-back data is stable during the clock edge
-  // by delaying the write by one cycle relative to instruction fetch
-  logic [4:0]  rd_wb;           // Registered destination register address
-  logic [31:0] rd_data_wb;      // Registered write data
-  logic        reg_write_wb;    // Registered write enable
+  // In a true single-cycle design, writes happen in the same cycle as fetch/decode/execute
+  // The register file handles the write timing internally
 
   //============================================================================
   // Instruction Field Extraction
@@ -133,22 +139,6 @@ module riscvibe_top
     endcase
   end
 
-  //============================================================================
-  // Write-back Pipeline Registers
-  //============================================================================
-  // Register the write-back signals to ensure they're stable at clock edge
-  // This adds a one-cycle latency to writes but fixes the timing issue
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      rd_wb        <= 5'b0;
-      rd_data_wb   <= 32'b0;
-      reg_write_wb <= 1'b0;
-    end else begin
-      rd_wb        <= rd;
-      rd_data_wb   <= rd_data;
-      reg_write_wb <= reg_write;
-    end
-  end
 
   //============================================================================
   // Module Instantiations
@@ -194,29 +184,36 @@ module riscvibe_top
     .rs1_data  (rs1_data_raw),
     .rs2_addr  (rs2),
     .rs2_data  (rs2_data_raw),
-    .rd_addr   (rd_wb),         // Use pipelined write address
-    .rd_data   (rd_data_wb),    // Use pipelined write data
-    .reg_write (reg_write_wb)   // Use pipelined write enable
+    .rd_addr   (rd_wb),        // Pipelined write address (from previous instruction)
+    .rd_data   (rd_data_wb),   // Pipelined write data (from previous instruction)
+    .reg_write (reg_write_wb)  // Pipelined write enable (from previous instruction)
   );
+
+  //----------------------------------------------------------------------------
+  // Write-back Pipeline Registers
+  //----------------------------------------------------------------------------
+  // Delay write-back by one cycle for proper 2-stage pipeline behavior
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      rd_wb        <= 5'b0;
+      rd_data_wb   <= 32'b0;
+      reg_write_wb <= 1'b0;
+    end else begin
+      rd_wb        <= rd;
+      rd_data_wb   <= rd_data;
+      reg_write_wb <= reg_write;
+    end
+  end
 
   //----------------------------------------------------------------------------
   // Forwarding Logic
   //----------------------------------------------------------------------------
-  // Forward data from write-back stage if there's a RAW hazard
-  // A hazard exists when:
-  //   1. Write-back is enabled (reg_write_wb == 1)
-  //   2. Write-back destination matches read source (rd_wb == rs1 or rs2)
-  //   3. Destination is not x0 (rd_wb != 0)
-
-  // Forward for rs1
+  // Forward from write-back stage when reading a register that's about to be written
+  // This handles the 1-cycle delay from synchronous IMEM
   assign rs1_data = (reg_write_wb && (rd_wb != 5'b0) && (rd_wb == rs1))
-                    ? rd_data_wb
-                    : rs1_data_raw;
-
-  // Forward for rs2
+                    ? rd_data_wb : rs1_data_raw;
   assign rs2_data = (reg_write_wb && (rd_wb != 5'b0) && (rd_wb == rs2))
-                    ? rd_data_wb
-                    : rs2_data_raw;
+                    ? rd_data_wb : rs2_data_raw;
 
   //----------------------------------------------------------------------------
   // Immediate Generator

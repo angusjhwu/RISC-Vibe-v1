@@ -62,15 +62,18 @@ module instruction_mem #(
     end
 
     // -------------------------------------------------------------------------
-    // Asynchronous read logic
+    // Synchronous read logic
     // -------------------------------------------------------------------------
-    // Combinational read with bounds checking
-    always_comb begin
+    // Registered read with bounds checking
+    // The instruction is registered on the positive clock edge, which means
+    // the instruction seen is from the PREVIOUS cycle's PC value.
+    // This creates a proper pipeline stage for instruction fetch.
+    always_ff @(posedge clk) begin
         if (word_addr < DEPTH) begin
-            instruction = mem[word_addr];
+            instruction <= mem[word_addr];
         end else begin
             // Return NOP for out-of-bounds access
-            instruction = NOP_INSTRUCTION;
+            instruction <= NOP_INSTRUCTION;
         end
     end
 

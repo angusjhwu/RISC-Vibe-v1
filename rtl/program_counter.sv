@@ -83,9 +83,9 @@ module program_counter
   //============================================================================
   // PC Register
   //============================================================================
-  // Update PC on rising clock edge, reset to RESET_VECTOR on active-low reset
+  // Update PC on rising clock edge, synchronous reset to RESET_VECTOR
 
-  always_ff @(posedge clk or negedge rst_n) begin
+  always_ff @(posedge clk) begin
     if (!rst_n) begin
       pc <= RESET_VECTOR;
     end else begin

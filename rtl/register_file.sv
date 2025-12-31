@@ -36,7 +36,10 @@ module register_file (
     //-------------------------------------------------------------------------
     // Synchronous write logic
     // Writes occur on the positive edge of the clock
-    // Writes to x0 are ignored (rd_addr != 0 check)
+    // With a synchronous instruction memory, this creates a 2-stage pipeline:
+    //   - Stage 1 (IF): IMEM reads at PC, registers instruction
+    //   - Stage 2 (EX/WB): Decode, execute, memory, writeback
+    // Both stages advance on the same clock edge
     //-------------------------------------------------------------------------
     always_ff @(posedge clk) begin
         if (!rst_n) begin
