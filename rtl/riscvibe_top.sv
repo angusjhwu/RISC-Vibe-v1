@@ -41,6 +41,13 @@ module riscvibe_top
   logic        reg_write_wb;    // Write enable from previous cycle
 
   //============================================================================
+  // Pipeline Flush Signal
+  //============================================================================
+  // When a branch is taken, the instruction in the pipeline (fetched at the
+  // old PC) must be flushed - it should not write to registers or memory.
+  logic        flush_pipeline;  // True when branch/jump is taken
+
+  //============================================================================
   // Internal Signals - Instruction Decode Stage
   //============================================================================
   // Instruction field extraction
@@ -190,9 +197,25 @@ module riscvibe_top
   );
 
   //----------------------------------------------------------------------------
+  // Pipeline Flush Logic
+  //----------------------------------------------------------------------------
+  // When a branch/jump is taken, the next instruction (already fetched) must
+  // be flushed. We register the branch_taken signal to apply the flush to the
+  // instruction that follows the branch.
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      flush_pipeline <= 1'b0;
+    end else begin
+      // Flush on any taken branch or jump
+      flush_pipeline <= branch_taken;
+    end
+  end
+
+  //----------------------------------------------------------------------------
   // Write-back Pipeline Registers
   //----------------------------------------------------------------------------
   // Delay write-back by one cycle for proper 2-stage pipeline behavior
+  // If flush_pipeline is set, suppress the register write
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       rd_wb        <= 5'b0;
@@ -201,7 +224,8 @@ module riscvibe_top
     end else begin
       rd_wb        <= rd;
       rd_data_wb   <= rd_data;
-      reg_write_wb <= reg_write;
+      // Suppress register write if we're flushing the pipeline
+      reg_write_wb <= reg_write && !flush_pipeline;
     end
   end
 
@@ -274,8 +298,8 @@ module riscvibe_top
     .rst_n      (rst_n),
     .addr       (alu_result),
     .write_data (rs2_data),
-    .mem_read   (mem_read),
-    .mem_write  (mem_write),
+    .mem_read   (mem_read && !flush_pipeline),  // Suppress on flush
+    .mem_write  (mem_write && !flush_pipeline), // Suppress on flush
     .mem_width  (mem_width),
     .read_data  (mem_read_data)
   );

@@ -360,3 +360,119 @@ The processor is now a proper 2-stage pipeline:
 - `tb/tb_riscvibe_top.sv` - Simplified debug output
 - `programs/test_alu.hex` - Fixed encodings
 - `programs/test_add.hex` - Fixed encodings
+
+---
+
+## Session 3: Branch Instructions and Fibonacci Test
+
+### User Request
+Create a Fibonacci test program to verify branch instructions work correctly.
+
+### Issues Identified and Fixed
+
+#### 1. Pipeline Flush on Branch (Control Hazard)
+**Issue**: When a branch is taken, the instruction already fetched from the wrong path was still being executed.
+
+**Symptoms**:
+- After branch, the instruction at the old PC+4 would execute before the target instruction
+- Caused incorrect register writes during loops
+
+**Fix**: Added `flush_pipeline` signal in `riscvibe_top.sv`:
+- Register `branch_taken` for one cycle
+- Use `flush_pipeline` to suppress register writes and memory operations
+- Prevents the "delay slot" instruction from affecting program state
+
+```systemverilog
+// Pipeline flush logic
+always_ff @(posedge clk) begin
+    flush_pipeline <= branch_taken;
+end
+
+// Suppress register write on flush
+reg_write_wb <= reg_write && !flush_pipeline;
+
+// Suppress memory operations on flush
+.mem_read   (mem_read && !flush_pipeline),
+.mem_write  (mem_write && !flush_pipeline),
+```
+
+#### 2. Branch Instruction Encoding Errors
+**Issue**: Manual hex encoding had several errors in the Fibonacci program.
+
+**Examples**:
+- `add x3, x1, x2` was 0x002080b3 (rd=1) instead of 0x002081b3 (rd=3)
+- `add x1, x0, x2` was 0x000100b3 (wrong rs1/rs2) instead of 0x002000b3
+- `add x2, x0, x3` was 0x00018133 instead of 0x00300133
+- `bne x4, x0, offset` had rs1=x8 instead of rs1=x4
+
+**Fix**: Created Python encoder script to generate correct instruction encodings.
+
+#### 3. Data Hazard with Branch Comparison
+**Issue**: The 2-stage pipeline has a 2-cycle latency from instruction decode to register write-back. Branch comparison reads register values before they're written.
+
+**Symptoms**:
+- Branch condition evaluated with stale register values
+- Loops didn't iterate correctly
+
+**Fix**: Added 2 NOPs before branch instruction to allow the comparison register (x4) to be written back before the branch reads it.
+
+### Test Program Created
+
+**test_fib.S / test_fib.hex** - Fibonacci Sequence:
+- Computes F(1) through F(10) = 1, 1, 2, 3, 5, 8, 13, 21, 34, 55
+- Uses loop with BNE instruction
+- Verifies F(10) = 55
+- Sets x10 = 0 for PASS
+
+```assembly
+    addi x1, x0, 1      # F(1) = 1
+    addi x2, x0, 1      # F(2) = 1
+    addi x4, x0, 8      # counter = 8
+loop:
+    add  x3, x1, x2     # F(n) = F(n-2) + F(n-1)
+    add  x1, x0, x2     # F(n-2) = F(n-1)
+    add  x2, x0, x3     # F(n-1) = F(n)
+    addi x4, x4, -1     # counter--
+    nop                 # hazard mitigation
+    nop                 # hazard mitigation
+    bne  x4, x0, loop   # if counter != 0, loop
+    addi x11, x0, 55    # expected = 55
+    sub  x10, x3, x11   # result = F(10) - 55 (0 if correct)
+    nop
+    ecall
+```
+
+### Test Results
+
+**test_fib.hex**: PASS
+- x1 = 34 (F(9))
+- x2 = 55 (F(10))
+- x3 = 55 (F(10))
+- x4 = 0 (loop counter exhausted)
+- x10 = 0 (PASS)
+- x11 = 55 (expected value)
+
+**test_simple.hex**: PASS
+**test_add.hex**: PASS
+**test_alu.hex**: PASS (all values correct)
+
+### Architecture Update
+
+The processor now properly handles control hazards with a 1-cycle branch penalty:
+
+```
+    Cycle N:   Branch instruction decoded, branch_taken asserted
+    Cycle N+1: Instruction from wrong path is flushed (no side effects)
+    Cycle N+2: First instruction from correct target executes
+```
+
+### Files Created/Modified
+- `programs/test_fib.S` - Fibonacci assembly with comments
+- `programs/test_fib.hex` - Correctly encoded hex file
+- `rtl/riscvibe_top.sv` - Added pipeline flush logic
+
+### Known Issues for Future Work
+1. ~~Branch instructions not working~~ (RESOLVED)
+2. Data hazards require manual NOP insertion (no automatic stalling/forwarding for branches)
+3. Need to test load/store instructions
+4. Consider adding interlocking or full forwarding for branch source registers
