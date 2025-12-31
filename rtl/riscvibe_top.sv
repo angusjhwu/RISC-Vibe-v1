@@ -30,6 +30,7 @@ module riscvibe_top
   logic [31:0] pc;              // Current program counter (fetch address)
   logic [31:0] pc_plus_4;       // PC + 4 for sequential execution
   logic [31:0] instruction;     // Instruction from memory (synchronous)
+  logic [31:0] instr_pc;        // PC of the instruction being executed (pc - 4)
 
   //============================================================================
   // Internal Signals - Write-back Pipeline Registers (for 2-stage pipeline)
@@ -117,18 +118,28 @@ module riscvibe_top
   assign funct7 = instruction[31:25];
 
   //============================================================================
+  // Instruction PC Calculation
+  //============================================================================
+  // With synchronous IMEM, when instruction is available for decode/execute,
+  // the PC register has already advanced to the next address. The actual PC
+  // of the instruction being executed is therefore PC - 4.
+  assign instr_pc = pc - 32'd4;
+
+  //============================================================================
   // Branch Target Calculation
   //============================================================================
-  // branch_target = PC + immediate (for JAL, conditional branches)
+  // branch_target = instruction_PC + immediate (for JAL, conditional branches)
   // jalr_target = rs1_data + immediate (for JALR) with LSB cleared
-  assign branch_target = pc + immediate;
+  // NOTE: Use instr_pc (not pc) because the instruction's offset is relative
+  // to its own address, not the next instruction's address.
+  assign branch_target = instr_pc + immediate;
   assign jalr_target   = (rs1_data + immediate) & 32'hFFFFFFFE;  // Clear LSB
 
   //============================================================================
   // ALU Input Multiplexers
   //============================================================================
-  // Select ALU operand A: 0=rs1, 1=PC
-  assign alu_operand_a = alu_src_a ? pc : rs1_data;
+  // Select ALU operand A: 0=rs1, 1=instruction PC (for AUIPC)
+  assign alu_operand_a = alu_src_a ? instr_pc : rs1_data;
 
   // Select ALU operand B: 0=rs2, 1=immediate
   assign alu_operand_b = alu_src_b ? immediate : rs2_data;
@@ -136,11 +147,13 @@ module riscvibe_top
   //============================================================================
   // Register Write Data Selection
   //============================================================================
+  // NOTE: For JAL/JALR, the return address should be instr_pc + 4 (the
+  // instruction after the jump), not pc_plus_4 which would be instr_pc + 8.
   always_comb begin
     case (reg_wr_src)
       REG_WR_ALU: rd_data = alu_result;
       REG_WR_MEM: rd_data = mem_read_data;
-      REG_WR_PC4: rd_data = pc_plus_4;
+      REG_WR_PC4: rd_data = instr_pc + 32'd4;  // Return address for JAL/JALR
       REG_WR_IMM: rd_data = immediate;
       default:    rd_data = alu_result;
     endcase
