@@ -476,3 +476,232 @@ The processor now properly handles control hazards with a 1-cycle branch penalty
 2. Data hazards require manual NOP insertion (no automatic stalling/forwarding for branches)
 3. Need to test load/store instructions
 4. Consider adding interlocking or full forwarding for branch source registers
+
+---
+
+## Session 4: PC Offset Fix and Bubble Sort Test
+
+### User Request
+Run a bubble sort program that uses stack-based memory, JAL jumps, and multiple branch types.
+
+### Issues Identified and Fixed
+
+#### 1. PC Offset for Branch/Jump Instructions (Critical Bug)
+**Issue**: Branch and jump target calculations were using the wrong PC value. With synchronous IMEM, when an instruction executes, the PC register has already advanced to the next address. The branch_target was calculated as `pc + immediate`, but should be `instr_pc + immediate` where `instr_pc = pc - 4`.
+
+**Symptoms**:
+- JAL jumps went to wrong address (off by 4)
+- Branch loops jumped to incorrect targets
+- Program counter went to undefined values
+
+**Root Cause**:
+- In the 2-stage pipeline, when instruction at address X executes, PC shows X+4
+- RISC-V branch offsets are relative to the instruction's own PC, not the next PC
+
+**Fix**: Added `instr_pc` signal and updated all PC-relative calculations in `riscvibe_top.sv`:
+
+```systemverilog
+// Calculate actual instruction PC
+assign instr_pc = pc - 32'd4;
+
+// Branch target uses instruction PC
+assign branch_target = instr_pc + immediate;
+
+// AUIPC uses instruction PC
+assign alu_operand_a = alu_src_a ? instr_pc : rs1_data;
+
+// JAL/JALR return address uses instruction PC + 4
+REG_WR_PC4: rd_data = instr_pc + 32'd4;
+```
+
+#### 2. Test Program Re-encoding
+**Issue**: Previous test programs had branch offsets encoded for the (incorrect) pipelined PC. After fixing the RTL, they needed standard RISC-V encoding.
+
+**Fix**: Updated `test_fib.hex` and `test_fib_max.hex` with correct branch encodings:
+- BNE offset changed from -28 to -24 (standard offset from instruction address)
+- Changed encoding from `fe0212e3` to `fe0214e3`
+
+### Test Programs Created
+
+**test_bubblesort.S / test_bubblesort.hex** - Bubble Sort:
+- Sorts array {3, 5, 1, 2, 4} → {1, 2, 3, 4, 5}
+- Uses stack-based memory allocation (sp initialized to 0x400)
+- Uses JAL for unconditional jumps
+- Uses BGE and BLT for conditional branches
+- Nested loops (outer i loop, inner j loop)
+- 73 instructions total
+
+```assembly
+    addi    sp, zero, 0x400     # Initialize stack pointer
+    addi    sp, sp, -48         # Allocate stack frame
+    sw      s0, 44(sp)          # Save frame pointer
+    addi    s0, sp, 48          # Set up frame pointer
+    # ... array initialization ...
+    # ... nested sorting loops with j/bge/blt ...
+    ecall                       # Terminate
+```
+
+**test_fib_max.S / test_fib_max.hex** - Maximum Fibonacci (from Session 3):
+- Updated with corrected branch encoding
+- Computes F(47) = 2,971,215,073 (largest 32-bit Fibonacci)
+
+### Test Results
+
+| Test | Cycles | Result | Notes |
+|------|--------|--------|-------|
+| test_simple | ~15 | PASS | Basic I-type |
+| test_add | ~20 | PASS | R-type arithmetic |
+| test_alu | ~50 | PASS | All ALU operations |
+| test_fib | 69 | PASS | F(10) = 55 |
+| test_fib_max | ~370 | PASS | F(47) = 2,971,215,073 |
+| test_bubblesort | 419 | PASS | Array sorted correctly |
+
+### Architecture Summary
+
+The processor correctly implements standard RISC-V branch/jump semantics:
+
+```
+                    ┌─────────────────────────────────────────┐
+  Instruction at X: │  branch_target = X + offset            │
+                    │  return_addr   = X + 4                 │
+                    └─────────────────────────────────────────┘
+
+  Pipeline state when instruction X executes:
+    - pc register shows X + 4 (next fetch address)
+    - instr_pc = pc - 4 = X (actual instruction address)
+    - All PC-relative calculations use instr_pc
+```
+
+### Files Created/Modified
+- `rtl/riscvibe_top.sv` - Added instr_pc, fixed branch_target, alu_operand_a, and return address
+- `programs/test_fib.hex` - Fixed branch encoding
+- `programs/test_fib_max.hex` - Fixed branch encoding
+- `programs/test_bubblesort.S` - New bubble sort assembly
+- `programs/test_bubblesort.hex` - Compiled bubble sort
+
+### Git Commits
+```
+3f9fd23 Fix PC offset for branches/jumps and add bubble sort test
+9a39916 Add pipeline flush and Fibonacci test programs
+```
+
+### Known Issues for Future Work
+1. ~~PC offset for branches incorrect~~ (RESOLVED)
+2. Data hazards still require manual NOP insertion before branches
+3. Load/store instructions tested via bubble sort (working)
+4. Consider adding branch prediction or forwarding for branch source registers
+
+---
+
+## Session 5: RISC-V Assembler Implementation
+
+### User Request
+Build a modular Python3 assembler for all currently supported RV32I instructions. Design it to be extensible for future ISA expansion, with NOP insertion capability stubbed for future pipeline changes.
+
+### Implementation
+
+#### Package Structure
+Created `riscvibe_asm/` Python package with modular design:
+
+```
+riscvibe_asm/
+├── __init__.py        # Package exports
+├── __main__.py        # CLI entry point
+├── assembler.py       # Main two-pass assembler
+├── encoder.py         # Instruction encoding for all formats
+├── errors.py          # Custom exception types
+├── instructions.py    # Extensible instruction definitions
+├── nop_inserter.py    # Pipeline hazard handling (stubbed)
+├── parser.py          # Assembly source tokenizer
+├── pseudo.py          # Pseudo-instruction expansion
+└── registers.py       # Register name mapping
+```
+
+#### Supported Instructions
+
+**All 37 RV32I Base Instructions:**
+- R-type: ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND
+- I-type: ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI
+- Load: LB, LH, LW, LBU, LHU
+- Store: SB, SH, SW
+- Branch: BEQ, BNE, BLT, BGE, BLTU, BGEU
+- Jump: JAL, JALR
+- Upper: LUI, AUIPC
+- System: ECALL, EBREAK, FENCE
+
+**19 Pseudo-Instructions:**
+- NOP, LI, MV, NOT, NEG
+- J, JR, RET, CALL
+- BEQZ, BNEZ, BLEZ, BGEZ, BLTZ, BGTZ
+- SEQZ, SNEZ, SLTZ, SGTZ
+
+#### Key Features
+
+1. **Two-Pass Assembly:**
+   - Pass 1: Collect labels and compute addresses
+   - Pass 2: Encode instructions with resolved symbols
+
+2. **Label Support:**
+   - Standard labels (e.g., `_start:`, `loop:`)
+   - Local/GCC-style labels (e.g., `.L2:`, `.L6:`)
+
+3. **Immediate Formats:**
+   - Decimal: `10`, `-5`
+   - Hexadecimal: `0x400`, `0xFF`
+   - Binary: `0b1010`
+
+4. **Memory Operand Syntax:**
+   - `offset(register)` format for loads/stores
+   - e.g., `lw a5, -24(s0)` or `sw s0, 44(sp)`
+
+5. **Extensibility:**
+   - Add new instructions to `instructions.py` with opcode/funct3/funct7/format
+   - Encoder automatically handles encoding based on format type
+   - `nop_inserter.py` ready for configurable pipeline hazard handling
+
+#### Usage
+```bash
+python3 -m riscvibe_asm input.S -o output.hex      # Basic
+python3 -m riscvibe_asm input.S -o output.hex -v   # Verbose
+python3 -m riscvibe_asm input.S --listing          # Show listing
+```
+
+### Verification Results
+
+Assembled all existing test programs and ran simulations:
+
+| Test | Instructions | Result | Notes |
+|------|-------------|--------|-------|
+| test_alu.S | 16 | PASS | All ALU operations correct |
+| test_fib.S | 14 | PASS | F(10) = 55 |
+| test_bubblesort.S | 73 | PASS | Array sorted correctly |
+
+The assembler produces byte-identical output to manually-encoded hex files (with minor differences in pseudo-instruction expansion, e.g., `mv` → `addi` vs `add`).
+
+### Design Decisions
+
+1. **Modular Architecture:** Each concern (parsing, encoding, pseudo-expansion) in separate module for maintainability and testing.
+
+2. **Standard Pseudo-Instruction Expansion:** Following RISC-V specification:
+   - `mv rd, rs` → `addi rd, rs, 0`
+   - `li rd, imm` → `addi rd, x0, imm` (small) or `lui + addi` (large)
+   - `nop` → `addi x0, x0, 0`
+
+3. **NOP Insertion Stubbed:** The `nop_inserter.py` module is designed but not active, ready for when pipeline configuration changes require automatic hazard mitigation.
+
+4. **Error Handling:** Custom exception types with line numbers and source context for debugging.
+
+### Files Created
+- `assembler.md` - Design document and plan
+- `riscvibe_asm/` - Complete Python package (9 modules)
+
+### Git Commit
+```
+3c1d196 Add modular RV32I assembler for RISC-Vibe processor
+```
+
+### Future Enhancements
+1. Activate NOP insertion for automatic hazard handling
+2. Add M extension (multiply/divide) when processor supports it
+3. Add `.data` section support for initialized data
+4. Add macro support
