@@ -256,9 +256,14 @@ module riscvibe_5stage_top
   //----------------------------------------------------------------------------
   // EX/MEM Pipeline Register
   //----------------------------------------------------------------------------
-  // On flush: clear valid bit
   // On reset: clear valid bit
-  // Otherwise: load from EX stage output
+  // Otherwise: always load from EX stage output
+  //
+  // Note: We do NOT flush the EX/MEM register for control hazards. When a
+  // branch/jump is taken in EX stage, that instruction itself needs to
+  // complete (e.g., JAL/JALR need to write their link address). The flush
+  // signals only affect IF/ID and ID/EX to discard the speculatively
+  // fetched instructions AFTER the branch.
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       ex_mem_reg.valid <= 1'b0;
@@ -271,12 +276,6 @@ module riscvibe_5stage_top
       ex_mem_reg.mem_width <= '0;
       ex_mem_reg.reg_write <= 1'b0;
       ex_mem_reg.reg_wr_src <= REG_WR_ALU;
-    end else if (flush_ex) begin
-      // Clear valid bit on flush (insert bubble)
-      ex_mem_reg.valid <= 1'b0;
-      ex_mem_reg.reg_write <= 1'b0;
-      ex_mem_reg.mem_read <= 1'b0;
-      ex_mem_reg.mem_write <= 1'b0;
     end else begin
       ex_mem_reg <= ex_mem_out;
     end

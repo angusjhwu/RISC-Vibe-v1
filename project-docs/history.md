@@ -866,3 +866,117 @@ make 2stage TESTPROG=programs/test_fib.hex
            │ (stall/flush)│
            └──────────────┘
 ```
+
+---
+
+## Session 7: Comprehensive Hazard Verification
+
+### User Request
+"Verify more extensively the pipelined processor, by first listing all hazards possible in this ISA, then for each hazard scenario explain the hazard and design a testbench to verify functional correctness. First analyze and think hard about the scenarios, and write your plan in hazards_tb_impl.md"
+
+### Analysis
+
+Created comprehensive hazard analysis covering all scenarios in an RV32I 5-stage pipeline:
+
+1. **Data Hazards (RAW Dependencies)**
+   - EX-to-EX forwarding (1-cycle gap)
+   - MEM-to-EX forwarding (2-cycle gap)
+   - WB-to-ID forwarding (3-cycle gap, register bypass)
+   - Back-to-back dependency chains
+   - Multi-source dependencies
+
+2. **Load-Use Hazards**
+   - Load followed by dependent instruction (requires 1-cycle stall)
+   - Chain loads (address dependency)
+   - Load-store forwarding
+   - Different load widths (LB, LBU, LH, LHU, LW)
+
+3. **Control Hazards**
+   - Conditional branches (all 6 types: BEQ, BNE, BLT, BGE, BLTU, BGEU)
+   - JAL (unconditional jump with link)
+   - JALR (indirect jump with link)
+   - Branch with data dependency (forwarding to branch operands)
+
+4. **Edge Cases**
+   - x0 register (hardwired zero, no forwarding)
+   - Self-modifying register operations
+   - Long dependency chains
+   - Interleaved independent chains
+
+### Bug Discovered and Fixed
+
+**Critical Bug:** JAL/JALR instructions were not saving their return address to the link register.
+
+**Root Cause:** The `flush_ex` signal was incorrectly applied to the EX/MEM pipeline register when a branch was taken. This cleared the `reg_write` signal for the branch instruction itself, preventing JAL/JALR from writing their return address.
+
+**Analysis:**
+- When branch_taken is asserted, `flush_ex` was set by hazard_unit
+- EX/MEM pipeline register had: `if (flush_ex) reg_write <= 0`
+- This incorrectly cleared the branch instruction's reg_write, not the speculative instruction after it
+
+**Fix:** Removed the `flush_ex` condition from the EX/MEM pipeline register. The branch instruction in EX stage should always proceed to MEM and WB stages to complete execution. The `flush_id` signal correctly handles clearing the speculatively fetched instructions in IF/ID and ID/EX registers.
+
+**File Modified:** `rtl/riscvibe_5stage_top.sv`
+
+### Test Programs Created
+
+| Test File | Purpose |
+|-----------|---------|
+| test_hazard_ex_ex.S | EX/MEM→EX forwarding (1-cycle RAW) |
+| test_hazard_mem_ex.S | MEM/WB→EX forwarding (2-cycle RAW) |
+| test_hazard_load_use.S | Load-use hazard with stall |
+| test_hazard_branch.S | All 6 branch types |
+| test_hazard_jal.S | JAL with link address |
+| test_hazard_jalr.S | JALR with forwarding |
+| test_hazard_x0.S | x0 register edge cases |
+| test_hazard_chain.S | Long dependency chains |
+| test_hazard_comprehensive.S | Combined all scenarios |
+
+### Test Results
+
+All 12 tests passed (9 new hazard tests + 3 regression tests):
+
+| Test | Result | Cycles | Key Verifications |
+|------|--------|--------|-------------------|
+| test_hazard_ex_ex | PASS | 35 | EX/MEM forwarding to rs1, rs2, both |
+| test_hazard_mem_ex | PASS | 23 | MEM/WB forwarding, mixed paths |
+| test_hazard_load_use | PASS | 39 | Load-use stall, chain loads |
+| test_hazard_branch | PASS | 56 | All 6 branch conditions |
+| test_hazard_jal | PASS | 25 | JAL link address saved correctly |
+| test_hazard_jalr | PASS | 24 | JALR with forwarding |
+| test_hazard_x0 | PASS | 31 | x0 writes ignored, no forwarding |
+| test_hazard_chain | PASS | 35 | 8-instruction chain, self-modify |
+| test_hazard_comprehensive | PASS | 84 | All hazard types combined |
+| test_alu (regression) | PASS | 23 | Original ALU operations |
+| test_fib (regression) | PASS | 83 | Fibonacci computation |
+| test_bubblesort (regression) | PASS | 565 | Bubble sort algorithm |
+
+### Files Created/Modified
+
+```
+programs/
+├── test_hazard_ex_ex.S
+├── test_hazard_mem_ex.S
+├── test_hazard_load_use.S
+├── test_hazard_branch.S
+├── test_hazard_jal.S
+├── test_hazard_jalr.S
+├── test_hazard_x0.S
+├── test_hazard_chain.S
+└── test_hazard_comprehensive.S
+
+project-docs/
+└── hazards_tb_impl.md    # Comprehensive hazard analysis and verification plan
+
+rtl/
+└── riscvibe_5stage_top.sv  # Bug fix for EX/MEM flush
+```
+
+### Verification Checklist Completed
+
+All forwarding, hazard, branch/jump, and edge case tests verified:
+- 9 forwarding unit tests
+- 9 hazard unit tests
+- 8 branch/jump tests
+- 6 edge case tests
+- 4 combined scenario tests
