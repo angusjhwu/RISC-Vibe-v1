@@ -170,4 +170,84 @@ package riscvibe_pkg;
   localparam int ILEN       = 32;  // Instruction width
   localparam int REG_ADDR_W = 5;   // Register address width (32 registers)
 
+  //============================================================================
+  // Forwarding Unit Selection
+  //============================================================================
+  // Selects the source for forwarded data in the EX stage
+
+  typedef enum logic [1:0] {
+    FWD_NONE = 2'b00,  // No forwarding, use ID/EX register
+    FWD_WB   = 2'b01,  // Forward from MEM/WB stage
+    FWD_MEM  = 2'b10   // Forward from EX/MEM stage
+  } forward_sel_t;
+
+  //============================================================================
+  // Pipeline Register Structures (5-stage pipeline)
+  //============================================================================
+  // Packed structs for pipeline registers between each stage
+
+  //----------------------------------------------------------------------------
+  // IF/ID Pipeline Register
+  //----------------------------------------------------------------------------
+  typedef struct packed {
+    logic [31:0] instruction;  // Fetched instruction
+    logic [31:0] pc;           // Program counter of this instruction
+    logic [31:0] pc_plus_4;    // PC + 4 for sequential next instruction
+    logic        valid;        // Instruction valid flag
+  } if_id_reg_t;
+
+  //----------------------------------------------------------------------------
+  // ID/EX Pipeline Register
+  //----------------------------------------------------------------------------
+  typedef struct packed {
+    logic [31:0]  pc;           // Program counter
+    logic [31:0]  pc_plus_4;    // PC + 4 for link address
+    logic [31:0]  rs1_data;     // Source register 1 data
+    logic [31:0]  rs2_data;     // Source register 2 data
+    logic [4:0]   rs1_addr;     // Source register 1 address
+    logic [4:0]   rs2_addr;     // Source register 2 address
+    logic [4:0]   rd_addr;      // Destination register address
+    logic [31:0]  immediate;    // Sign-extended immediate value
+    alu_op_t      alu_op;       // ALU operation (4 bits)
+    logic         alu_src_a;    // ALU source A select (0=rs1, 1=PC)
+    logic         alu_src_b;    // ALU source B select (0=rs2, 1=imm)
+    logic         mem_read;     // Memory read enable
+    logic         mem_write;    // Memory write enable
+    logic [2:0]   mem_width;    // Memory access width
+    logic         reg_write;    // Register write enable
+    reg_wr_src_t  reg_wr_src;   // Register write source (2 bits)
+    branch_type_t branch_type;  // Branch type (2 bits)
+    logic [2:0]   branch_cmp;   // Branch comparison type
+    logic         valid;        // Pipeline stage valid flag
+  } id_ex_reg_t;
+
+  //----------------------------------------------------------------------------
+  // EX/MEM Pipeline Register
+  //----------------------------------------------------------------------------
+  typedef struct packed {
+    logic [31:0] pc_plus_4;     // PC + 4 for link address
+    logic [31:0] alu_result;    // ALU computation result
+    logic [31:0] rs2_data;      // Store data (from rs2)
+    logic [4:0]  rd_addr;       // Destination register address
+    logic        mem_read;      // Memory read enable
+    logic        mem_write;     // Memory write enable
+    logic [2:0]  mem_width;     // Memory access width
+    logic        reg_write;     // Register write enable
+    reg_wr_src_t reg_wr_src;    // Register write source (2 bits)
+    logic        valid;         // Pipeline stage valid flag
+  } ex_mem_reg_t;
+
+  //----------------------------------------------------------------------------
+  // MEM/WB Pipeline Register
+  //----------------------------------------------------------------------------
+  typedef struct packed {
+    logic [31:0] pc_plus_4;     // PC + 4 for link address
+    logic [31:0] alu_result;    // ALU computation result
+    logic [31:0] mem_read_data; // Data read from memory
+    logic [4:0]  rd_addr;       // Destination register address
+    logic        reg_write;     // Register write enable
+    reg_wr_src_t reg_wr_src;    // Register write source (2 bits)
+    logic        valid;         // Pipeline stage valid flag
+  } mem_wb_reg_t;
+
 endpackage : riscvibe_pkg

@@ -705,3 +705,164 @@ The assembler produces byte-identical output to manually-encoded hex files (with
 2. Add M extension (multiply/divide) when processor supports it
 3. Add `.data` section support for initialized data
 4. Add macro support
+
+---
+
+## Session 6: 5-Stage Pipeline Implementation
+
+### User Request
+Convert the existing 2-stage RISC-Vibe processor to a standard 5-stage pipeline (FDXMW: Fetch, Decode, Execute, Memory, Writeback) with full forwarding and hazard detection.
+
+### Implementation Overview
+
+Created a comprehensive 5-stage pipeline implementation with the following components:
+
+#### New RTL Modules
+1. **if_stage.sv** - Instruction Fetch stage
+   - PC register and PC+4 calculation
+   - Next PC mux (sequential, branch, JALR)
+   - Embedded combinational instruction memory
+   - Stall and flush support
+
+2. **id_stage.sv** - Instruction Decode stage
+   - Instruction field extraction
+   - Control unit instantiation
+   - Register file with WB-to-ID forwarding
+   - Immediate generation
+   - Bubble insertion on stall/flush
+
+3. **ex_stage.sv** - Execute stage
+   - Forwarding muxes for ALU operands
+   - ALU source selection (register/PC, register/immediate)
+   - Branch target calculation
+   - JALR target calculation
+   - Branch decision via branch unit
+
+4. **mem_stage.sv** - Memory Access stage
+   - Data memory instantiation
+   - Load/store operations
+   - Pass-through of control signals
+
+5. **wb_stage.sv** - Writeback stage
+   - Writeback data mux (ALU, memory, PC+4, immediate)
+   - Register file write interface
+
+6. **forwarding_unit.sv** - Data forwarding control
+   - EX hazard detection (1-cycle distance)
+   - MEM hazard detection (2-cycle distance)
+   - Forward select signals for ALU operands
+
+7. **hazard_unit.sv** - Hazard detection and control
+   - Load-use hazard detection (requires stall)
+   - Control hazard detection (branch taken)
+   - Stall and flush signal generation
+
+8. **riscvibe_5stage_top.sv** - Top-level module
+   - Pipeline register instantiation
+   - Stage interconnections
+   - Hazard/forwarding unit integration
+
+#### Package Updates
+- Added pipeline register struct types (if_id_reg_t, id_ex_reg_t, ex_mem_reg_t, mem_wb_reg_t)
+- Added forward_sel_t enumeration
+
+### Key Design Decisions
+
+1. **Forwarding Paths**:
+   - EX-to-EX: Forward from EX/MEM register (ALU result)
+   - MEM-to-EX: Forward from MEM/WB register (writeback data)
+   - WB-to-ID: Forward from WB to ID stage (register file bypass)
+
+2. **Hazard Handling**:
+   - Load-use hazard: 1-cycle stall + bubble insertion
+   - Control hazard: 2-cycle flush (IF and ID stages)
+   - Stall signals only affect PC and IF/ID register
+   - ID/EX register receives bubble on flush, not stall
+
+3. **Branch Resolution**:
+   - Branches resolved in EX stage
+   - 2-cycle branch penalty for taken branches
+   - Flush IF/ID and ID/EX on branch taken
+
+4. **Pipeline Register Updates**:
+   - IF/ID: Hold on stall, else update
+   - ID/EX: Flush to bubble, else update (no stall)
+   - EX/MEM: Flush to bubble on control hazard, else update
+   - MEM/WB: Always update
+
+### Testbench Updates
+- Created tb_riscvibe_5stage.sv for 5-stage pipeline
+- Pipeline stage monitoring and debug output
+- Forwarding and hazard signal display
+- Updated Makefile with 5-stage and 2-stage targets
+
+### Test Results
+
+| Test | 2-Stage Cycles | 5-Stage Cycles | Result |
+|------|----------------|----------------|--------|
+| test_fib.hex | 69 | 83 | PASS |
+| test_bubblesort.hex | 419 | 565 | PASS |
+| test_alu.hex | ~20 | 23 | PASS* |
+
+*test_alu doesn't set x10=0 for pass; all register values are correct.
+
+### Files Created
+```
+rtl/
+├── if_stage.sv           # Instruction Fetch stage
+├── id_stage.sv           # Instruction Decode stage
+├── ex_stage.sv           # Execute stage
+├── mem_stage.sv          # Memory stage
+├── wb_stage.sv           # Writeback stage
+├── forwarding_unit.sv    # Data forwarding control
+├── hazard_unit.sv        # Hazard detection
+└── riscvibe_5stage_top.sv # 5-stage top module
+
+tb/
+└── tb_riscvibe_5stage.sv  # 5-stage testbench
+
+project-docs/
+└── pipeline-impl.md       # Implementation plan document
+```
+
+### Files Modified
+- rtl/riscvibe_pkg.sv - Added pipeline register types
+- Makefile - Added 5-stage and 2-stage build targets
+
+### Build Commands
+```bash
+# Build and simulate 5-stage pipeline (default)
+make all TESTPROG=programs/test_fib.hex
+
+# Build and simulate 2-stage pipeline (original)
+make 2stage TESTPROG=programs/test_fib.hex
+```
+
+### Known Issues
+1. test_fib_max.hex timing differs from 2-stage due to different hazard handling
+2. Tests with manual NOPs for 2-stage may behave differently
+
+### Architecture Diagram
+```
+┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+│   IF     │──▶│   ID     │──▶│   EX     │──▶│   MEM    │──▶│   WB     │
+│  Fetch   │   │  Decode  │   │ Execute  │   │  Memory  │   │Writeback │
+└──────────┘   └──────────┘   └──────────┘   └──────────┘   └──────────┘
+     │              │              │              │              │
+  IF/ID          ID/EX          EX/MEM         MEM/WB           │
+  Reg            Reg            Reg            Reg              │
+     │              │                                           │
+     │              └────────────┐                              │
+     │                           │      ┌───────────────────────┘
+     │              ┌────────────┴──────┴───────────────┐
+     │              │       Forwarding Unit             │
+     │              │  (EX-to-EX, MEM-to-EX, WB-to-ID)  │
+     │              └───────────────────────────────────┘
+     │                           │
+     └──────────┐   ┌────────────┘
+                │   │
+           ┌────▼───▼─────┐
+           │ Hazard Unit  │
+           │ (stall/flush)│
+           └──────────────┘
+```
