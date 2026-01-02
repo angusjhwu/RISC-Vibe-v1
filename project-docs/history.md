@@ -980,3 +980,110 @@ All forwarding, hazard, branch/jump, and edge case tests verified:
 - 8 branch/jump tests
 - 6 edge case tests
 - 4 combined scenario tests
+
+---
+
+## Session 8: Regression Test Automation and Testbench Cleanup
+
+### User Request
+1. Create a regression script to automate running all pipeline tests
+2. Fix test_alu to conform to pass/fail convention
+3. Clean up testbench to remove misleading pass/fail messages
+
+### Implementation
+
+#### 1. Regression Test Runner (regression_pipeline.py)
+
+Created Python script to automate pipeline verification:
+
+**Features:**
+- Auto-discovers all test_hazard_*.hex and original test files
+- Compiles and simulates each test via Makefile
+- Parses register values from simulation output
+- Validates against test-specific expected register values
+- Generates detailed logs in sim/logs/
+- Produces summary report in sim/regression_report.txt
+
+**Usage:**
+```bash
+./regression_pipeline.py              # Run all tests
+./regression_pipeline.py -v           # Verbose output
+./regression_pipeline.py --test NAME  # Run specific test
+./regression_pipeline.py --list       # List available tests
+```
+
+**Test Expectations:**
+Each test has specific expected register values defined in `TEST_EXPECTATIONS` dictionary, allowing flexible validation beyond just x10=0.
+
+#### 2. test_alu.S Fix
+
+**Issue:** test_alu used x10 for shift result (40), but testbench expected x10=0 for pass.
+
+**Fix:**
+- Moved shift result from x10 to x16
+- Added `addi x10, x0, 0` at end as pass indicator
+- Updated regression expectations
+
+#### 3. Testbench Simplification
+
+**Problem:** Testbench had hardcoded x10=0 check that showed "TEST FAILED" for tests that don't use this convention, creating confusion.
+
+**Design Decision:**
+- Testbench should only run simulations and display state
+- Pass/fail validation belongs in regression script which has test-specific expectations
+- This is more scalable as tests can use any register values
+
+**Changes to tb_riscvibe_5stage.sv:**
+- Removed `check_result()` task with ASCII art pass/fail banners
+- Replaced with simple `display_x10_summary()` showing "SIMULATION COMPLETE"
+- Removed x10_value variable
+- Updated header comments to reference regression script
+
+### Test Results
+
+All 12 tests pass:
+```
+test_alu                 PASS     23 cycles
+test_bubblesort          PASS    565 cycles
+test_fib                 PASS     83 cycles
+test_hazard_branch       PASS     56 cycles
+test_hazard_chain        PASS     35 cycles
+test_hazard_comprehensive PASS    84 cycles
+test_hazard_ex_ex        PASS     35 cycles
+test_hazard_jal          PASS     25 cycles
+test_hazard_jalr         PASS     24 cycles
+test_hazard_load_use     PASS     39 cycles
+test_hazard_mem_ex       PASS     23 cycles
+test_hazard_x0           PASS     31 cycles
+```
+
+### Files Created/Modified
+
+```
+regression_pipeline.py       # New: Automated test runner
+programs/test_alu.S          # Modified: x10=0 pass convention
+programs/test_alu.hex        # Regenerated
+tb/tb_riscvibe_5stage.sv     # Modified: Removed pass/fail logic
+sim/logs/                    # Generated: Per-test logs
+sim/regression_report.txt    # Generated: Summary report
+```
+
+### Git Commits
+```
+8ba0735 Fix test_alu to use x10=0 pass convention
+16aa4c9 Remove pass/fail logic from testbench
+```
+
+### Architecture Decision
+
+**Separation of Concerns:**
+| Component | Responsibility |
+|-----------|----------------|
+| Testbench | Run simulation, dump registers, detect ECALL/EBREAK |
+| Regression Script | Validate correctness with test-specific expectations |
+
+This approach allows:
+- Tests to use any registers for meaningful values
+- Flexible per-test validation criteria
+- Single source of truth for expected values
+- Clean logs without misleading messages
