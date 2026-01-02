@@ -45,7 +45,8 @@ TEST_EXPECTATIONS = {
         "x2": 0x00000014,   # 20
         "x3": 0xFFFFFFFB,   # -5
         "x4": 0x0000001E,   # 30
-        "x10": 0x00000028,  # 40 (not 0, so skip x10=0 check)
+        "x10": 0x00000000,  # 0 (pass indicator)
+        "x16": 0x00000028,  # 40 (shift result)
     },
     "test_fib": {
         "x10": 0,  # Success marker

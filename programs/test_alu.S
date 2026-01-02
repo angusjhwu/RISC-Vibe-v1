@@ -11,12 +11,13 @@
 #   x7  = 10          (0x0000000A)
 #   x8  = 250         (0x000000FA)
 #   x9  = 245         (0x000000F5)
-#   x10 = 40          (0x00000028)
+#   x10 = 0           (0x00000000) - Pass indicator
 #   x11 = 15          (0x0000000F)
 #   x12 = -3          (0xFFFFFFFD)
 #   x13 = 1           (0x00000001)
 #   x14 = 1           (0x00000001)
 #   x15 = 1           (0x00000001)
+#   x16 = 40          (0x00000028) - Shift result moved here
 
 .text
 .globl _start
@@ -46,7 +47,7 @@ _start:
     # ============================================
     # Section 4: Test shift operations (SLL, SRL, SRA)
     # ============================================
-    slli x10, x1, 2         # x10 = x1 << 2 = 10 << 2 = 40
+    slli x16, x1, 2         # x16 = x1 << 2 = 10 << 2 = 40
     srli x11, x8, 4         # x11 = x8 >> 4 = 250 >> 4 = 15 (logical)
     srai x12, x3, 1         # x12 = x3 >>> 1 = -5 >>> 1 = -3 (arithmetic)
 
@@ -58,8 +59,9 @@ _start:
     slti x15, x1, 15        # x15 = (x1 < 15) = (10 < 15) = 1
 
     # ============================================
-    # Section 6: End simulation
+    # Section 6: Set pass indicator and end simulation
     # ============================================
+    addi x10, x0, 0         # x10 = 0 (PASS indicator)
     ecall                   # Stop simulation
 
 # End of test program
