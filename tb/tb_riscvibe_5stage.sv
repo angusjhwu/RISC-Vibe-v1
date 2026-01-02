@@ -8,8 +8,10 @@
 //   - Pipeline stage monitoring
 //   - Register monitoring and display
 //   - ECALL/EBREAK detection for simulation termination
-//   - Pass/fail reporting based on x10 (a0) register
 //   - VCD waveform dump for GTKWave
+//
+// Note: Pass/fail validation is handled by the regression_pipeline.py script
+// which checks test-specific expected register values.
 //==============================================================================
 
 `timescale 1ns/1ps
@@ -64,7 +66,6 @@ module tb_riscvibe_5stage;
   logic [31:0] id_instruction;
   logic [6:0]  id_opcode;
   logic        ecall_ebreak_detected;
-  logic [31:0] x10_value;  // a0 register for pass/fail
 
   //============================================================================
   // Pipeline Stage Monitoring
@@ -164,8 +165,8 @@ module tb_riscvibe_5stage;
           display_registers();
           display_pipeline_state();
 
-          // Check pass/fail based on x10 (a0)
-          check_result();
+          // Display x10 for quick reference (validation done by regression script)
+          display_x10_summary();
 
           $finish;
         end
@@ -183,8 +184,8 @@ module tb_riscvibe_5stage;
         display_registers();
         display_pipeline_state();
 
-        // Check pass/fail based on x10 (a0)
-        check_result();
+        // Display x10 for quick reference (validation done by regression script)
+        display_x10_summary();
 
         $finish;
       end
@@ -248,39 +249,14 @@ module tb_riscvibe_5stage;
   endtask
 
   //============================================================================
-  // Task: Check Test Result
+  // Task: Display Simulation Complete
   //============================================================================
-  // Convention: x10 (a0) = 0 means PASS, non-zero means FAIL
-  task check_result();
-    x10_value = dut.u_id_stage.u_register_file.registers[10];
-
+  task display_x10_summary();
     $display("");
     $display("========================================");
-    $display("        TEST RESULT SUMMARY");
+    $display("        SIMULATION COMPLETE");
     $display("========================================");
-    $display("x10 (a0) = 0x%08h (%0d)", x10_value, x10_value);
-    $display("");
-
-    if (x10_value == 32'h0) begin
-      $display("  ######     ##     ######   ###### ");
-      $display("  ##   ##   ####   ##    ## ##    ##");
-      $display("  ######   ##  ##  ##       ##      ");
-      $display("  ##      ########  ######   ###### ");
-      $display("  ##      ##    ##       ##       ##");
-      $display("  ##      ##    ## ##    ## ##    ##");
-      $display("  ##      ##    ##  ######   ###### ");
-      $display("");
-      $display("TEST PASSED!");
-    end else begin
-      $display("  #######   ##     ## ##      ");
-      $display("  ##       ####    ## ##      ");
-      $display("  #####   ##  ##   ## ##      ");
-      $display("  ##     ########  ## ##      ");
-      $display("  ##     ##    ##  ## ##      ");
-      $display("  ##     ##    ##  ## ########");
-      $display("");
-      $display("TEST FAILED! (Error code: %0d)", x10_value);
-    end
+    $display("Run regression_pipeline.py for pass/fail validation.");
     $display("========================================");
   endtask
 
