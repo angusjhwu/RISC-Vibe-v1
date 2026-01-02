@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RISC-Vibe Pipeline Visualizer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <h1>RISC-Vibe Pipeline Visualizer</h1>
+        <button id="load-trace-btn" class="btn btn-primary">Load Trace</button>
+        <input type="file" id="trace-file-input" accept=".jsonl,.json" hidden>
+    </header>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p>Loading trace...</p>
+    </div>
+
+    <!-- Error Toast -->
+    <div id="error-toast" class="error-toast hidden">
+        <span id="error-message"></span>
+        <button id="error-close" class="error-close">&times;</button>
+    </div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Pipeline Diagram -->
+        <section class="pipeline-section">
+            <h2>Pipeline Stages</h2>
+            <div class="pipeline-container">
+                <!-- IF Stage -->
+                <div class="stage" id="stage-if">
+                    <div class="stage-header">IF</div>
+                    <div class="stage-body">
+                        <div class="stage-field">
+                            <span class="field-label">PC:</span>
+                            <span class="field-value mono" id="if-pc">--------</span>
+                        </div>
+                        <div class="stage-field">
+                            <span class="field-label">Instr:</span>
+                            <span class="field-value mono" id="if-inst-hex">--------</span>
+                        </div>
+                        <div class="stage-field">
+                            <span class="field-label">ASM:</span>
+                            <span class="field-value" id="if-inst-asm">---</span>
+                        </div>
+                        <div class="stage-valid" id="if-valid">---</div>
+                    </div>
+                </div>
+
+                <div class="arrow">&rarr;</div>
+
+                <!-- ID Stage -->
+                <div class="stage" id="stage-id">
+                    <div class="stage-header">ID</div>
+                    <div class="stage-body">
+                        <div class="stage-field">
+                            <span class="field-label">PC:</span>
+                            <span class="field-value mono" id="id-pc">--------</span>
+                        </div>
+                        <div class="stage-field">
+                            <span class="field-label">Instr:</span>
+                            <span class="field-value mono" id="id-inst-hex">--------</span>
+                        </div>
+                        <div class="stage-field">
+                            <span class="field-label">rs1/rs2:</span>
+                            <span class="field-value" id="id-rs1">--</span> / <span id="id-rs2">--</span>
+                        </div>
+                        <div class="stage-valid" id="id-valid">---</div>
+                    </div>
+                </div>
+
+                <div class="arrow">&rarr;</div>
+
+                <!-- EX Stage -->
+                <div class="stage" id="stage-ex">
+                    <div class="stage-header">EX</div>
+                    <div class="stage-body">
+                        <div class="stage-field">
+                            <span class="field-label">PC:</span>
+                            <span class="field-value mono" id="ex-pc">--------</span>
+                        </div>
+                        <div class="stage-field">
+                            <span class="field-label">ALU Op:</span>
+                            <span class="field-value" id="ex-alu-op">---</span>
+                        </div>
+                        <div class="stage-field">
+                            <span class="field-label">Result:</span>
+                            <span class="field-value mono" id="ex-alu-result">--------</span>
+                        </div>
+                        <div class="stage-valid" id="ex-valid">---</div>
+                    </div>
+                </div>
+
+                <div class="arrow">&rarr;</div>
+
+                <!-- MEM Stage -->
+                <div class="stage" id="stage-mem">
+                    <div class="stage-header">MEM</div>
+                    <div class="stage-body">
+                        <div class="stage-field">
+                            <span class="field-label">Addr:</span>
+                            <span class="field-value mono" id="mem-addr">--------</span>
+                        </div>
+                        <div class="stage-field">
+                            <span class="field-label">R/W:</span>
+                            <span class="field-value" id="mem-rw">---</span>
+                        </div>
+                        <div class="stage-field">
+                            <span class="field-label">rd:</span>
+                            <span class="field-value" id="mem-rd">--</span>
+                        </div>
+                        <div class="stage-valid" id="mem-valid">---</div>
+                    </div>
+                </div>
+
+                <div class="arrow">&rarr;</div>
+
+                <!-- WB Stage -->
+                <div class="stage" id="stage-wb">
+                    <div class="stage-header">WB</div>
+                    <div class="stage-body">
+                        <div class="stage-field">
+                            <span class="field-label">rd:</span>
+                            <span class="field-value" id="wb-rd">--</span>
+                        </div>
+                        <div class="stage-field">
+                            <span class="field-label">Data:</span>
+                            <span class="field-value mono" id="wb-data">--------</span>
+                        </div>
+                        <div class="stage-field">
+                            <span class="field-label">Src:</span>
+                            <span class="field-value" id="wb-src">---</span>
+                        </div>
+                        <div class="stage-valid" id="wb-valid">---</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Bottom Section -->
+        <div class="bottom-section">
+            <!-- Register File -->
+            <section class="register-section">
+                <div class="section-header">
+                    <h2>Register File</h2>
+                    <div class="reg-format-toggle">
+                        <span class="toggle-label">Hex</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="reg-format-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <span class="toggle-label">Dec</span>
+                    </div>
+                </div>
+                <div class="register-grid" id="register-grid">
+                    <!-- Generated by JavaScript -->
+                </div>
+            </section>
+
+            <!-- Right Panel -->
+            <div class="right-panel">
+                <!-- Controls -->
+                <section class="controls-section">
+                    <h2>Controls</h2>
+                    <div class="playback-controls">
+                        <button id="btn-first" class="btn btn-control" title="First (Home)">&laquo;</button>
+                        <button id="btn-prev" class="btn btn-control" title="Previous (Left Arrow)">&lsaquo;</button>
+                        <button id="btn-play" class="btn btn-control btn-play" title="Play/Pause (Space)">&#9658;</button>
+                        <button id="btn-next" class="btn btn-control" title="Next (Right Arrow)">&rsaquo;</button>
+                        <button id="btn-last" class="btn btn-control" title="Last (End)">&raquo;</button>
+                    </div>
+                    <div class="cycle-display">
+                        <label>Cycle:</label>
+                        <input type="number" id="cycle-input" value="0" min="0" disabled>
+                        <span>/ <span id="total-cycles">0</span></span>
+                    </div>
+                    <div class="speed-control">
+                        <label>Speed:</label>
+                        <input type="range" id="speed-slider" min="1" max="20" value="5">
+                        <span id="speed-value">5</span> c/s
+                    </div>
+                </section>
+
+                <!-- Hazard Status -->
+                <section class="hazard-section">
+                    <h2>Hazard Status</h2>
+                    <div class="hazard-grid">
+                        <div class="hazard-item">
+                            <span class="hazard-dot" id="hazard-stall-if"></span>
+                            <span class="hazard-label">Stall IF</span>
+                        </div>
+                        <div class="hazard-item">
+                            <span class="hazard-dot" id="hazard-stall-id"></span>
+                            <span class="hazard-label">Stall ID</span>
+                        </div>
+                        <div class="hazard-item">
+                            <span class="hazard-dot" id="hazard-flush-id"></span>
+                            <span class="hazard-label">Flush ID</span>
+                        </div>
+                        <div class="hazard-item">
+                            <span class="hazard-dot" id="hazard-flush-ex"></span>
+                            <span class="hazard-label">Flush EX</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Forwarding Status -->
+                <section class="forward-section">
+                    <h2>Forwarding</h2>
+                    <div class="forward-grid">
+                        <div class="forward-item">
+                            <span class="forward-label">Forward A:</span>
+                            <span class="forward-value" id="forward-a">NONE</span>
+                        </div>
+                        <div class="forward-item">
+                            <span class="forward-label">Forward B:</span>
+                            <span class="forward-value" id="forward-b">NONE</span>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

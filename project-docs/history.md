@@ -1087,3 +1087,178 @@ This approach allows:
 - Flexible per-test validation criteria
 - Single source of truth for expected values
 - Clean logs without misleading messages
+
+---
+
+## Session 9: Pipeline Visualizer Implementation
+
+### User Request
+Create an interactive simulator/visualizer that allows stepping through program execution cycle-by-cycle, showing pipeline stages, registers, hazards, and forwarding in real-time.
+
+### Design Decisions
+
+1. **Trace Format**: JSON Lines (.jsonl) instead of CSV
+   - Better for nested/hierarchical data (pipeline registers have sub-fields)
+   - Self-documenting field names
+   - Easy to parse in any language
+
+2. **GUI Framework**: Web-based (Python Flask + HTML/JS)
+   - Cross-platform (works in any browser)
+   - Zero installation friction
+   - Rich visualization capabilities
+
+3. **Port**: 5050 (default) to avoid conflict with macOS AirPlay on port 5000
+
+### Implementation
+
+#### 1. Trace Logger (rtl/trace_logger.sv)
+
+SystemVerilog module that outputs JSON Lines format each cycle:
+- Cycle count and all pipeline register contents
+- Register file values (all 32 registers)
+- Hazard signals (stall_if, stall_id, flush_id, flush_ex)
+- Forwarding status (forward_a, forward_b)
+- ALU operands and results
+- Branch taken/target information
+
+**JSON Output Format:**
+```json
+{"cycle":10,"if":{"pc":"0x00000028","instr":"0x00445593","valid":true},"id":{...},"ex":{...},"mem":{...},"wb":{...},"regs":["0x00000000",...],"hazard":{"stall_if":false,...},"forward":{"a":"NONE","b":"NONE"}}
+```
+
+#### 2. Disassembler (rtl/disasm.sv)
+
+Package with function to decode RV32I instructions to assembly strings:
+- All R-type, I-type, Load, Store, Branch, Jump, Upper, System instructions
+- Proper immediate formatting (decimal for small, hex for large)
+- Pseudo-instruction recognition (e.g., NOP)
+
+#### 3. Testbench Updates (tb/tb_riscvibe_5stage.sv)
+
+Added conditional trace logger instantiation:
+- `TRACE_ENABLE` define controls inclusion
+- Extracts register file values for trace logger
+- Connects all pipeline signals
+
+#### 4. Flask Backend (sim/visualizer/)
+
+**Files created:**
+- `app.py` - Flask application with REST API
+- `trace_parser.py` - JSONL trace file parser with statistics
+- `requirements.txt` - Python dependencies (flask>=2.3.0)
+
+**API Endpoints:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Serve main HTML page |
+| `/api/load` | POST | Upload trace file |
+| `/api/cycle/<n>` | GET | Get cycle n state |
+| `/api/cycles` | GET | Get total cycle count |
+| `/api/stats` | GET | Get execution statistics |
+| `/api/range/<start>/<end>` | GET | Get cycle range |
+
+#### 5. Frontend (sim/visualizer/static/, templates/)
+
+**Features:**
+- 5-stage pipeline visualization with color coding
+  - Green: valid instruction
+  - Gray: bubble/invalid
+  - Red: stalled
+  - Orange: being flushed
+- 32-register file display with change highlighting
+- Playback controls (first, prev, play/pause, next, last)
+- Direct cycle input and speed slider
+- Hazard status indicators (stall/flush signals)
+- Forwarding status (NONE/MEM/WB)
+- Keyboard shortcuts (←, →, Space, Home, End)
+
+#### 6. Makefile Updates
+
+New targets:
+- `make trace` - Compile and run with trace logging
+- `make compile-trace` - Compile only with trace logger
+- `make sim-trace` - Run simulation with trace output
+- `make visualizer` - Start the visualizer web server
+
+#### 7. Launch Script (run_visualizer.sh)
+
+Shell script that:
+- Creates Python virtual environment if needed
+- Installs Flask dependency
+- Starts the visualizer server
+
+### Usage
+
+```bash
+# Generate a trace file
+make trace TESTPROG=programs/test_fib.hex
+
+# Start the visualizer
+./run_visualizer.sh
+
+# Open browser to http://localhost:5050
+# Click "Load Trace" and select sim/trace.jsonl
+# Use playback controls or keyboard to step through cycles
+```
+
+### Test Results
+
+- Trace generation verified: 22 cycles for test_alu.hex
+- JSON format validated: all lines parse correctly
+- API endpoints tested:
+  - `/api/load` returns `{"success":true,"cycles":22}`
+  - `/api/cycles` returns `{"total":22}`
+  - `/api/cycle/10` returns full cycle state
+  - `/api/stats` returns `{"cpi":1.22,"stall_cycles":0,...}`
+- Frontend renders correctly with all UI components
+
+### Files Created
+
+```
+rtl/
+├── trace_logger.sv           # JSON trace output module
+└── disasm.sv                 # RV32I disassembler package
+
+sim/visualizer/
+├── __init__.py
+├── app.py                    # Flask backend
+├── trace_parser.py           # JSONL parser
+├── requirements.txt          # Python dependencies
+├── templates/
+│   └── index.html            # Main page template
+└── static/
+    ├── css/
+    │   └── style.css         # Stylesheet
+    └── js/
+        └── main.js           # Application logic
+
+run_visualizer.sh             # Launch script
+project-docs/simulator_impl.md # Detailed implementation plan
+```
+
+### Files Modified
+
+```
+tb/tb_riscvibe_5stage.sv      # Added trace logger instantiation
+Makefile                      # Added trace/visualizer targets
+```
+
+### Architecture
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  Simulation     │     │   Flask Server   │     │    Browser      │
+│  (iverilog)     │────▶│  (trace_parser)  │────▶│  (JavaScript)   │
+│                 │     │                  │     │                 │
+│ trace_logger.sv │     │    REST API      │     │  Visualization  │
+│ → trace.jsonl   │     │  /api/cycle/N    │     │  Controls       │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+```
+
+### Documentation
+
+Created comprehensive implementation plan in `project-docs/simulator_impl.md`:
+- Design decisions and rationale
+- Detailed file specifications
+- 40 test cases covering all functionality
+- Future enhancement ideas

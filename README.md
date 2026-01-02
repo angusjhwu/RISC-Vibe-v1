@@ -32,6 +32,14 @@ A 5-stage pipelined RISC-V processor implementing the RV32I base integer instruc
 - Per-test register value validation
 - VCD waveform generation for debugging
 
+### Pipeline Visualizer
+- Interactive web-based visualization of pipeline execution
+- Cycle-by-cycle stepping with playback controls
+- Real-time display of all 5 pipeline stages
+- Register file contents with change highlighting
+- Hazard and forwarding signal visualization
+- JSON Lines trace format for external tool integration
+
 ## Repository Structure
 
 ```
@@ -52,13 +60,22 @@ RiscVibe/
 │   ├── register_file.sv          # 32x32-bit register file
 │   ├── data_memory.sv            # Data memory
 │   ├── immediate_gen.sv          # Immediate generator
-│   └── instruction_mem.sv        # Instruction ROM
+│   ├── instruction_mem.sv        # Instruction ROM
+│   ├── trace_logger.sv           # JSON trace generator for visualizer
+│   └── disasm.sv                 # RV32I disassembler package
 ├── tb/                           # Testbenches
 │   └── tb_riscvibe_5stage.sv     # 5-stage pipeline testbench
 ├── programs/                     # Test programs (.S and .hex)
 ├── riscvibe_asm/                 # Python assembler
+├── sim/                          # Simulation outputs
+│   └── visualizer/               # Pipeline visualizer web app
+│       ├── app.py                # Flask backend server
+│       ├── trace_parser.py       # JSONL trace file parser
+│       ├── templates/            # HTML templates
+│       └── static/               # CSS and JavaScript
 ├── project-docs/                 # Design documentation
 ├── Makefile                      # Build system
+├── run_visualizer.sh             # Visualizer launch script
 └── regression_pipeline.py        # Automated test runner
 ```
 
@@ -117,6 +134,8 @@ make wave
 | `make` or `make all` | Compile and simulate 5-stage pipeline (default) |
 | `make compile` | Compile only |
 | `make sim` | Run simulation only |
+| `make trace` | Compile and run with trace logging for visualizer |
+| `make visualizer` | Start the pipeline visualizer web server |
 | `make 2stage` | Compile and run legacy 2-stage pipeline |
 | `make wave` | Open waveforms in GTKWave |
 | `make clean` | Remove generated files |
@@ -235,6 +254,36 @@ make wave
 
 The VCD file is saved to `sim/riscvibe_5stage.vcd`.
 
+### Using the Pipeline Visualizer
+
+The pipeline visualizer provides an interactive web-based view of pipeline execution:
+
+1. **Generate a trace file:**
+   ```bash
+   make trace TESTPROG=programs/test_fib.hex
+   ```
+   This creates `sim/trace.jsonl` containing cycle-by-cycle processor state.
+
+2. **Start the visualizer:**
+   ```bash
+   ./run_visualizer.sh
+   ```
+   Or manually:
+   ```bash
+   make visualizer
+   ```
+
+3. **Open in browser:**
+   Navigate to `http://localhost:5050`
+
+4. **Load and explore:**
+   - Click "Load Trace" to load `sim/trace.jsonl`
+   - Use playback controls or keyboard shortcuts:
+     - `Space` - Play/Pause
+     - `←` / `→` - Step backward/forward
+     - `Home` / `End` - Jump to start/end
+   - View pipeline stages, register values, and hazard signals
+
 ### Writing C Programs
 
 To run C programs, you'll need a RISC-V cross-compiler toolchain:
@@ -330,6 +379,7 @@ Additional documentation is available in `project-docs/`:
 - [PIPELINE.md](project-docs/PIPELINE.md) - Pipeline architecture overview
 - [pipeline-impl.md](project-docs/pipeline-impl.md) - Detailed implementation specification
 - [hazards_tb_impl.md](project-docs/hazards_tb_impl.md) - Hazard testing documentation
+- [simulator_impl.md](project-docs/simulator_impl.md) - Pipeline visualizer implementation
 - [assembler.md](assembler.md) - Assembler design and usage
 
 ## License

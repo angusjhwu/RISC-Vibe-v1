@@ -92,9 +92,15 @@ IVFLAGS     += -I $(RTL_DIR)
 IVFLAGS     += -DTESTPROG_FILE=\"../$(TESTPROG)\"
 
 #------------------------------------------------------------------------------
+# Trace Logger Files (for Pipeline Visualizer)
+#------------------------------------------------------------------------------
+TRACE_SRCS  := $(RTL_DIR)/trace_logger.sv $(RTL_DIR)/disasm.sv
+TRACE_FILE  := $(SIM_DIR)/trace.jsonl
+
+#------------------------------------------------------------------------------
 # Phony Targets
 #------------------------------------------------------------------------------
-.PHONY: all compile sim wave clean help dirs 2stage compile-2stage sim-2stage
+.PHONY: all compile sim wave clean help dirs 2stage compile-2stage sim-2stage trace compile-trace visualizer
 
 #------------------------------------------------------------------------------
 # Default Target
@@ -167,6 +173,46 @@ sim-2stage: $(VVP_FILE)
 	@echo "Waveform saved to: $(VCD_FILE)"
 
 #------------------------------------------------------------------------------
+# Trace Generation Targets (for Pipeline Visualizer)
+#------------------------------------------------------------------------------
+trace: compile-trace sim-trace
+
+compile-trace: dirs
+	@echo "========================================"
+	@echo "Compiling with Trace Logger Enabled"
+	@echo "========================================"
+	@echo "RTL Sources: $(RTL_5STAGE) $(TRACE_SRCS)"
+	@echo "TB Sources:  $(TB_5STAGE)"
+	@echo "Test Program: $(TESTPROG)"
+	@echo "========================================"
+	$(IVERILOG) $(IVFLAGS) -DTRACE_ENABLE -o $(VVP_FILE) $(RTL_5STAGE) $(TRACE_SRCS) $(TB_5STAGE)
+	@echo "Compilation successful!"
+	@echo ""
+
+sim-trace: $(VVP_FILE)
+	@echo "========================================"
+	@echo "Running Simulation with Trace Logging"
+	@echo "========================================"
+	@echo "Test Program: $(TESTPROG)"
+	@echo "Trace Output: $(TRACE_FILE)"
+	@echo "========================================"
+	cd $(SIM_DIR) && $(VVP) riscvibe.vvp
+	@echo ""
+	@echo "Simulation complete!"
+	@echo "Trace saved to: $(TRACE_FILE)"
+
+#------------------------------------------------------------------------------
+# Pipeline Visualizer Target
+#------------------------------------------------------------------------------
+visualizer:
+	@echo "========================================"
+	@echo "Starting Pipeline Visualizer"
+	@echo "========================================"
+	@echo "Open http://localhost:5000 in your browser"
+	@echo "========================================"
+	cd $(SIM_DIR)/visualizer && python3 app.py
+
+#------------------------------------------------------------------------------
 # Waveform Viewer Target
 #------------------------------------------------------------------------------
 wave: $(VCD_FILE)
@@ -196,6 +242,8 @@ help:
 	@echo "  2stage        - Compile and run original 2-stage pipeline"
 	@echo "  compile-2stage- Compile 2-stage pipeline"
 	@echo "  sim-2stage    - Run 2-stage pipeline simulation"
+	@echo "  trace         - Compile and run with trace logging (for visualizer)"
+	@echo "  visualizer    - Start the pipeline visualizer web server"
 	@echo "  wave          - Open waveforms in GTKWave"
 	@echo "  clean         - Remove generated files"
 	@echo "  help          - Show this message"
@@ -213,6 +261,8 @@ help:
 	@echo "  make compile                            # Just compile 5-stage"
 	@echo "  make sim TESTPROG=programs/test_fib.hex # Run specific test"
 	@echo "  make sim MAX_CYCLES=50000               # Run with more cycles"
+	@echo "  make trace TESTPROG=programs/test_fib.hex  # Generate trace file"
+	@echo "  make visualizer                         # Start visualizer web server"
 	@echo "  make wave                               # View waveforms"
 	@echo ""
 

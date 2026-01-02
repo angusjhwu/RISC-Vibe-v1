@@ -9,6 +9,7 @@
 //   - Register monitoring and display
 //   - ECALL/EBREAK detection for simulation termination
 //   - VCD waveform dump for GTKWave
+//   - JSON trace logging for pipeline visualizer
 //
 // Note: Pass/fail validation is handled by the regression_pipeline.py script
 // which checks test-specific expected register values.
@@ -29,6 +30,16 @@ module tb_riscvibe_5stage;
   // Test program file - defaults to test_alu.hex
 `ifndef TESTPROG_FILE
   `define TESTPROG_FILE "../programs/test_alu.hex"
+`endif
+
+  // Trace logging enable (set via -DTRACE_ENABLE=1)
+`ifndef TRACE_ENABLE
+  `define TRACE_ENABLE 0
+`endif
+
+  // Trace output file
+`ifndef TRACE_FILE
+  `define TRACE_FILE "trace.jsonl"
 `endif
 
   //============================================================================
@@ -86,6 +97,52 @@ module tb_riscvibe_5stage;
   assign ecall_ebreak_detected = dut.mem_wb_reg.valid &&
                                   (dut.ex_mem_reg.valid == 1'b0) &&
                                   (id_opcode == 7'h73);
+
+  //============================================================================
+  // Trace Logger Instantiation (for Pipeline Visualizer)
+  //============================================================================
+`ifdef TRACE_ENABLE
+  // Extract register file values for trace logger
+  logic [31:0] reg_file_copy [32];
+  always_comb begin
+    reg_file_copy[0] = 32'h0;  // x0 is always 0
+    for (int i = 1; i < 32; i++) begin
+      reg_file_copy[i] = dut.u_id_stage.u_register_file.registers[i];
+    end
+  end
+
+  trace_logger #(
+    .TRACE_FILE(`TRACE_FILE)
+  ) u_trace_logger (
+    .clk           (clk),
+    .rst_n         (rst_n),
+    .enable        (rst_n),  // Enable after reset
+    .cycle_count   (cycle_count),
+    // Pipeline registers
+    .if_id_reg     (dut.if_id_reg),
+    .id_ex_reg     (dut.id_ex_reg),
+    .ex_mem_reg    (dut.ex_mem_reg),
+    .mem_wb_reg    (dut.mem_wb_reg),
+    // Register file
+    .reg_file      (reg_file_copy),
+    // Hazard signals
+    .stall_if      (dut.stall_if),
+    .stall_id      (dut.stall_id),
+    .flush_id      (dut.flush_id),
+    .flush_ex      (dut.flush_ex),
+    // Forwarding signals
+    .forward_a     (dut.forward_a),
+    .forward_b     (dut.forward_b),
+    // Additional signals for visualization
+    .current_pc    (current_pc),
+    .current_instr (if_instruction),
+    .alu_operand_a (dut.u_ex_stage.alu_operand_a),
+    .alu_operand_b (dut.u_ex_stage.alu_operand_b),
+    .alu_result    (dut.u_ex_stage.alu_result),
+    .branch_taken  (dut.u_ex_stage.branch_taken),
+    .branch_target (dut.u_ex_stage.branch_target)
+  );
+`endif
 
   //============================================================================
   // VCD Waveform Dump
