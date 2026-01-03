@@ -1490,3 +1490,72 @@ Added SVG-based curved arrows that appear below the pipeline stages when forward
 - Labels show which operand(s) are being forwarded
 - Color coding matches existing stage color scheme
 - Arrows update in real-time when stepping through cycles
+
+---
+
+## Session 12b: Trace Logger Fix & Auto-Scroll (2026-01-03)
+
+### Summary
+Fixed critical JSON parsing bug in trace logger caused by undefined Verilog values, and added auto-scroll feature to the Program panel.
+
+### Bug Fix: Trace Logger JSON Parsing
+
+**Problem:** Loading bubblesort trace failed with "Invalid JSON on line 28" error. Investigation revealed Verilog `x` (undefined) values were being written directly to JSON, producing invalid output like `0xxxxxxxxx` for hex values and garbage characters for booleans.
+
+**Root Cause:** During early simulation cycles, pipeline registers contain undefined (x/z) values before being properly initialized. The trace logger was outputting these raw values.
+
+**Solution:** Modified `rtl/trace_logger.sv` to sanitize undefined values:
+
+```systemverilog
+// hex32() - Replace x/z bits with 0 for safe JSON output
+function automatic string hex32(input logic [31:0] val);
+  logic [31:0] safe_val;
+  safe_val = val;
+  for (int i = 0; i < 32; i++) begin
+    if (val[i] === 1'bx || val[i] === 1'bz) begin
+      safe_val[i] = 1'b0;
+    end
+  end
+  return $sformatf("0x%08x", safe_val);
+endfunction
+
+// bool_str() - Use 4-state comparison to detect exact 1'b1
+function automatic string bool_str(input logic val);
+  if (val === 1'b1) return "true";
+  else return "false";  // Treat x, z, or 0 as false
+endfunction
+```
+
+**Key Insight:** Must use `===` (4-state comparison) instead of `==` in SystemVerilog to properly detect x/z values. With `==`, comparisons involving x produce x, which doesn't match the expected control flow.
+
+### Auto-Scroll Feature
+
+**Request:** Make the Program panel automatically scroll to keep the currently fetched instruction visible.
+
+**Implementation:** Added to `updateProgramLetters()` in `main.js`:
+
+```javascript
+// Auto-scroll to the instruction currently being fetched (IF stage)
+const ifPc = cycle.if?.pc;
+if (ifPc) {
+    const fetchRow = document.querySelector(`.program-row[data-pc="${ifPc}"]`);
+    if (fetchRow) {
+        fetchRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+}
+```
+
+**Design Choice:** Using `block: 'nearest'` instead of `block: 'center'` minimizes scrolling - only scrolls when the fetched instruction would be outside the visible area.
+
+### Files Modified
+
+**rtl/trace_logger.sv:**
+- Updated `hex32()` to sanitize x/z bits to 0
+- Updated `bool_str()` to use 4-state comparison (`===`)
+- Added explanatory comments about x/z handling
+
+**sim/visualizer/static/js/main.js:**
+- Added auto-scroll logic at end of `updateProgramLetters()`
+
+### Commits
+- `15979ec` - Fix trace logger to handle undefined x/z values for valid JSON output

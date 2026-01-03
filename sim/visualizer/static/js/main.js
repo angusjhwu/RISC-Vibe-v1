@@ -787,6 +787,15 @@ function updateProgramLetters(cycle) {
         // Highlight row if any instruction is in pipeline
         row.classList.toggle('in-pipeline', stageInfos.length > 0);
     }
+
+    // Auto-scroll to the instruction currently being fetched (IF stage)
+    const ifPc = cycle.if?.pc;
+    if (ifPc) {
+        const fetchRow = document.querySelector(`.program-row[data-pc="${ifPc}"]`);
+        if (fetchRow) {
+            fetchRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
 }
 
 // =============================================================================
