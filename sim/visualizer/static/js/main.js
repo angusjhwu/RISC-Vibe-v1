@@ -384,64 +384,81 @@ function renderCycle(cycleNum) {
 function renderPipelineStages(cycle) {
     // IF Stage
     const ifStage = cycle.if || {};
-    updateStageField('if-pc', ifStage.pc);
-    updateStageField('if-inst-hex', ifStage.instr);
-    updateStageField('if-inst-asm', '---'); // IF doesn't have asm in trace
-    updateStageValid('if-valid', ifStage.valid !== false);
+    updateStageField('if-pc', formatPC(ifStage.pc));
+    updateStageField('if-asm', disasm(ifStage.instr));
     updateStageClass('if', ifStage.valid !== false, cycle.hazard);
 
     // ID Stage
     const idStage = cycle.id || {};
-    updateStageField('id-pc', idStage.pc);
-    updateStageField('id-inst-hex', idStage.instr);
+    updateStageField('id-pc', formatPC(idStage.pc));
+    updateStageField('id-asm', idStage.valid ? disasm(idStage.instr) : '---');
     updateStageField('id-rs1', idStage.rs1 !== undefined ? `x${idStage.rs1}` : '--');
     updateStageField('id-rs2', idStage.rs2 !== undefined ? `x${idStage.rs2}` : '--');
-    updateStageValid('id-valid', idStage.valid);
     updateStageClass('id', idStage.valid, cycle.hazard);
 
     // EX Stage
     const exStage = cycle.ex || {};
-    updateStageField('ex-pc', exStage.pc);
-    updateStageField('ex-alu-op', exStage.alu_op || '---');
-    updateStageField('ex-alu-result', exStage.result);
-    updateStageValid('ex-valid', exStage.valid);
+    updateStageField('ex-pc', formatPC(exStage.pc));
+    updateStageField('ex-asm', exStage.valid ? disasm(exStage.instr) : '---');
+    updateStageField('ex-result', exStage.valid ? formatResult(exStage.result) : '---');
     updateStageClass('ex', exStage.valid, cycle.hazard);
 
     // MEM Stage
     const memStage = cycle.mem || {};
-    updateStageField('mem-addr', memStage.addr);
-    const memRW = memStage.read ? 'READ' : (memStage.write ? 'WRITE' : '---');
-    updateStageField('mem-rw', memRW);
-    updateStageField('mem-rd', memStage.rd !== undefined ? `x${memStage.rd}` : '--');
-    updateStageValid('mem-valid', memStage.valid);
+    updateStageField('mem-pc', formatPC(memStage.pc));
+    updateStageField('mem-asm', memStage.valid ? disasm(memStage.instr) : '---');
+    const memOp = memStage.read ? `R @${formatAddr(memStage.addr)}` :
+                  (memStage.write ? `W @${formatAddr(memStage.addr)}` : '---');
+    updateStageField('mem-op', memStage.valid ? memOp : '---');
     updateStageClass('mem', memStage.valid, cycle.hazard);
 
     // WB Stage
     const wbStage = cycle.wb || {};
-    updateStageField('wb-rd', wbStage.rd !== undefined ? `x${wbStage.rd}` : '--');
-    updateStageField('wb-data', wbStage.data);
-    updateStageField('wb-src', wbStage.src || '---');
-    updateStageValid('wb-valid', wbStage.valid);
+    updateStageField('wb-pc', formatPC(wbStage.pc));
+    updateStageField('wb-asm', wbStage.valid ? disasm(wbStage.instr) : '---');
+    const wbInfo = wbStage.write && wbStage.rd !== 0 ?
+                   `x${wbStage.rd} <- ${formatResult(wbStage.data)}` : '---';
+    updateStageField('wb-info', wbStage.valid ? wbInfo : '---');
     updateStageClass('wb', wbStage.valid, cycle.hazard);
+}
+
+/**
+ * Format PC as compact hex (e.g., "0x0010")
+ */
+function formatPC(pc) {
+    if (!pc) return '---';
+    // Parse the hex string and format compactly
+    const val = parseInt(pc, 16);
+    if (isNaN(val)) return pc;
+    return '0x' + val.toString(16).padStart(4, '0');
+}
+
+/**
+ * Format address compactly
+ */
+function formatAddr(addr) {
+    if (!addr) return '---';
+    const val = parseInt(addr, 16);
+    if (isNaN(val)) return addr;
+    return '0x' + val.toString(16);
+}
+
+/**
+ * Format result value compactly
+ */
+function formatResult(result) {
+    if (!result) return '---';
+    const val = parseInt(result, 16);
+    if (isNaN(val)) return result;
+    // Show small values in decimal, large in hex
+    if (val <= 999) return val.toString(10);
+    return '0x' + val.toString(16);
 }
 
 function updateStageField(id, value) {
     const el = document.getElementById(id);
     if (!el) return;
-
-    if (value === undefined || value === null) {
-        el.textContent = '--------';
-    } else if (typeof value === 'string' && value.startsWith('0x')) {
-        el.textContent = value.toUpperCase();
-    } else {
-        el.textContent = value;
-    }
-}
-
-function updateStageValid(id, valid) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = valid ? 'VALID' : 'BUBBLE';
+    el.textContent = value || '---';
 }
 
 function updateStageClass(stageKey, valid, hazard) {

@@ -67,6 +67,15 @@ module trace_logger
   logic   file_opened;
 
   //============================================================================
+  // Shadow Pipeline Registers for Instruction Tracking
+  //============================================================================
+  // The actual pipeline registers don't carry PC/instruction through all stages,
+  // so we maintain shadow registers just for visualization purposes.
+  logic [31:0] ex_pc_shadow, ex_instr_shadow;
+  logic [31:0] mem_pc_shadow, mem_instr_shadow;
+  logic [31:0] wb_pc_shadow, wb_instr_shadow;
+
+  //============================================================================
   // Formatting Functions
   //============================================================================
 
@@ -163,6 +172,13 @@ module trace_logger
       end
       file_opened <= 1'b0;
       trace_fd <= 0;
+      // Reset shadow registers
+      ex_pc_shadow <= 32'h0;
+      ex_instr_shadow <= 32'h0;
+      mem_pc_shadow <= 32'h0;
+      mem_instr_shadow <= 32'h0;
+      wb_pc_shadow <= 32'h0;
+      wb_instr_shadow <= 32'h0;
     end else if (enable && !file_opened) begin
       trace_fd = $fopen(TRACE_FILE, "w");
       if (trace_fd == 0) begin
@@ -171,6 +187,19 @@ module trace_logger
         $display("trace_logger: Opened trace file: %s", TRACE_FILE);
         file_opened <= 1'b1;
       end
+    end else if (enable) begin
+      // Update shadow pipeline registers each cycle
+      // EX gets ID's PC/instruction (considering stalls)
+      if (!stall_id) begin
+        ex_pc_shadow <= if_id_reg.pc;
+        ex_instr_shadow <= if_id_reg.instruction;
+      end
+      // MEM gets EX's shadow values
+      mem_pc_shadow <= ex_pc_shadow;
+      mem_instr_shadow <= ex_instr_shadow;
+      // WB gets MEM's shadow values
+      wb_pc_shadow <= mem_pc_shadow;
+      wb_instr_shadow <= mem_instr_shadow;
     end
   end
 
@@ -202,42 +231,35 @@ module trace_logger
       $fwrite(trace_fd, "\"valid\":%s", bool_str(if_id_reg.valid));
       $fwrite(trace_fd, "},");
 
-      // EX Stage (from ID/EX register)
+      // EX Stage (from ID/EX register + shadow)
       $fwrite(trace_fd, "\"ex\":{");
       $fwrite(trace_fd, "\"pc\":\"%s\",", hex32(id_ex_reg.pc));
+      $fwrite(trace_fd, "\"instr\":\"%s\",", hex32(ex_instr_shadow));
       $fwrite(trace_fd, "\"rd\":%0d,", id_ex_reg.rd_addr);
       $fwrite(trace_fd, "\"rs1\":%0d,", id_ex_reg.rs1_addr);
       $fwrite(trace_fd, "\"rs2\":%0d,", id_ex_reg.rs2_addr);
-      $fwrite(trace_fd, "\"rs1_data\":\"%s\",", hex32(id_ex_reg.rs1_data));
-      $fwrite(trace_fd, "\"rs2_data\":\"%s\",", hex32(id_ex_reg.rs2_data));
-      $fwrite(trace_fd, "\"imm\":\"%s\",", hex32(id_ex_reg.immediate));
       $fwrite(trace_fd, "\"alu_op\":\"%s\",", alu_op_str(id_ex_reg.alu_op));
-      $fwrite(trace_fd, "\"alu_a\":\"%s\",", hex32(alu_operand_a));
-      $fwrite(trace_fd, "\"alu_b\":\"%s\",", hex32(alu_operand_b));
       $fwrite(trace_fd, "\"result\":\"%s\",", hex32(alu_result));
-      $fwrite(trace_fd, "\"branch_taken\":%s,", bool_str(branch_taken));
-      $fwrite(trace_fd, "\"branch_target\":\"%s\",", hex32(branch_target));
       $fwrite(trace_fd, "\"valid\":%s", bool_str(id_ex_reg.valid));
       $fwrite(trace_fd, "},");
 
-      // MEM Stage (from EX/MEM register)
+      // MEM Stage (from EX/MEM register + shadow)
       $fwrite(trace_fd, "\"mem\":{");
+      $fwrite(trace_fd, "\"pc\":\"%s\",", hex32(mem_pc_shadow));
+      $fwrite(trace_fd, "\"instr\":\"%s\",", hex32(mem_instr_shadow));
       $fwrite(trace_fd, "\"addr\":\"%s\",", hex32(ex_mem_reg.alu_result));
-      $fwrite(trace_fd, "\"write_data\":\"%s\",", hex32(ex_mem_reg.rs2_data));
       $fwrite(trace_fd, "\"rd\":%0d,", ex_mem_reg.rd_addr);
       $fwrite(trace_fd, "\"read\":%s,", bool_str(ex_mem_reg.mem_read));
       $fwrite(trace_fd, "\"write\":%s,", bool_str(ex_mem_reg.mem_write));
-      $fwrite(trace_fd, "\"reg_write\":%s,", bool_str(ex_mem_reg.reg_write));
       $fwrite(trace_fd, "\"valid\":%s", bool_str(ex_mem_reg.valid));
       $fwrite(trace_fd, "},");
 
-      // WB Stage (from MEM/WB register)
+      // WB Stage (from MEM/WB register + shadow)
       $fwrite(trace_fd, "\"wb\":{");
+      $fwrite(trace_fd, "\"pc\":\"%s\",", hex32(wb_pc_shadow));
+      $fwrite(trace_fd, "\"instr\":\"%s\",", hex32(wb_instr_shadow));
       $fwrite(trace_fd, "\"rd\":%0d,", mem_wb_reg.rd_addr);
       $fwrite(trace_fd, "\"data\":\"%s\",", hex32(get_wb_data()));
-      $fwrite(trace_fd, "\"alu_result\":\"%s\",", hex32(mem_wb_reg.alu_result));
-      $fwrite(trace_fd, "\"mem_data\":\"%s\",", hex32(mem_wb_reg.mem_read_data));
-      $fwrite(trace_fd, "\"src\":\"%s\",", reg_wr_src_str(mem_wb_reg.reg_wr_src));
       $fwrite(trace_fd, "\"write\":%s,", bool_str(mem_wb_reg.reg_write));
       $fwrite(trace_fd, "\"valid\":%s", bool_str(mem_wb_reg.valid));
       $fwrite(trace_fd, "},");

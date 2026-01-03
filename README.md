@@ -35,8 +35,8 @@ A 5-stage pipelined RISC-V processor implementing the RV32I base integer instruc
 ### Pipeline Visualizer
 - Interactive web-based visualization of pipeline execution
 - Cycle-by-cycle stepping with playback controls
-- Real-time display of all 5 pipeline stages
-- Register file contents with change highlighting
+- Real-time display of all 5 pipeline stages with PC and disassembled instructions
+- Register file contents with change highlighting and hex/decimal toggle
 - Hazard and forwarding signal visualization
 - JSON Lines trace format for external tool integration
 
@@ -73,6 +73,10 @@ RiscVibe/
 │       ├── trace_parser.py       # JSONL trace file parser
 │       ├── templates/            # HTML templates
 │       └── static/               # CSS and JavaScript
+│           ├── css/style.css     # Stylesheet
+│           └── js/
+│               ├── main.js       # Application logic
+│               └── disasm.js     # RV32I disassembler
 ├── project-docs/                 # Design documentation
 ├── Makefile                      # Build system
 ├── run_visualizer.sh             # Visualizer launch script
@@ -282,7 +286,9 @@ The pipeline visualizer provides an interactive web-based view of pipeline execu
      - `Space` - Play/Pause
      - `←` / `→` - Step backward/forward
      - `Home` / `End` - Jump to start/end
-   - View pipeline stages, register values, and hazard signals
+   - View pipeline stages with PC and disassembled instructions (e.g., `addi x1, x0, 10`)
+   - Toggle register display between hex and decimal formats
+   - Monitor hazard and forwarding signals in real-time
 
 ### Writing C Programs
 

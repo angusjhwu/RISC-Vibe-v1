@@ -36,19 +36,11 @@
                 <div class="stage" id="stage-if">
                     <div class="stage-header">IF</div>
                     <div class="stage-body">
-                        <div class="stage-field">
-                            <span class="field-label">PC:</span>
-                            <span class="field-value mono" id="if-pc">--------</span>
+                        <div class="stage-pc mono" id="if-pc">0x0000</div>
+                        <div class="stage-asm" id="if-asm">---</div>
+                        <div class="stage-detail">
+                            <span class="field-label">Fetching</span>
                         </div>
-                        <div class="stage-field">
-                            <span class="field-label">Instr:</span>
-                            <span class="field-value mono" id="if-inst-hex">--------</span>
-                        </div>
-                        <div class="stage-field">
-                            <span class="field-label">ASM:</span>
-                            <span class="field-value" id="if-inst-asm">---</span>
-                        </div>
-                        <div class="stage-valid" id="if-valid">---</div>
                     </div>
                 </div>
 
@@ -58,19 +50,12 @@
                 <div class="stage" id="stage-id">
                     <div class="stage-header">ID</div>
                     <div class="stage-body">
-                        <div class="stage-field">
-                            <span class="field-label">PC:</span>
-                            <span class="field-value mono" id="id-pc">--------</span>
+                        <div class="stage-pc mono" id="id-pc">0x0000</div>
+                        <div class="stage-asm" id="id-asm">---</div>
+                        <div class="stage-detail">
+                            <span class="field-label">rs1:</span><span id="id-rs1">--</span>
+                            <span class="field-label">rs2:</span><span id="id-rs2">--</span>
                         </div>
-                        <div class="stage-field">
-                            <span class="field-label">Instr:</span>
-                            <span class="field-value mono" id="id-inst-hex">--------</span>
-                        </div>
-                        <div class="stage-field">
-                            <span class="field-label">rs1/rs2:</span>
-                            <span class="field-value" id="id-rs1">--</span> / <span id="id-rs2">--</span>
-                        </div>
-                        <div class="stage-valid" id="id-valid">---</div>
                     </div>
                 </div>
 
@@ -80,19 +65,12 @@
                 <div class="stage" id="stage-ex">
                     <div class="stage-header">EX</div>
                     <div class="stage-body">
-                        <div class="stage-field">
-                            <span class="field-label">PC:</span>
-                            <span class="field-value mono" id="ex-pc">--------</span>
-                        </div>
-                        <div class="stage-field">
-                            <span class="field-label">ALU Op:</span>
-                            <span class="field-value" id="ex-alu-op">---</span>
-                        </div>
-                        <div class="stage-field">
+                        <div class="stage-pc mono" id="ex-pc">0x0000</div>
+                        <div class="stage-asm" id="ex-asm">---</div>
+                        <div class="stage-detail">
                             <span class="field-label">Result:</span>
-                            <span class="field-value mono" id="ex-alu-result">--------</span>
+                            <span class="mono" id="ex-result">---</span>
                         </div>
-                        <div class="stage-valid" id="ex-valid">---</div>
                     </div>
                 </div>
 
@@ -102,19 +80,11 @@
                 <div class="stage" id="stage-mem">
                     <div class="stage-header">MEM</div>
                     <div class="stage-body">
-                        <div class="stage-field">
-                            <span class="field-label">Addr:</span>
-                            <span class="field-value mono" id="mem-addr">--------</span>
+                        <div class="stage-pc mono" id="mem-pc">0x0000</div>
+                        <div class="stage-asm" id="mem-asm">---</div>
+                        <div class="stage-detail">
+                            <span id="mem-op">---</span>
                         </div>
-                        <div class="stage-field">
-                            <span class="field-label">R/W:</span>
-                            <span class="field-value" id="mem-rw">---</span>
-                        </div>
-                        <div class="stage-field">
-                            <span class="field-label">rd:</span>
-                            <span class="field-value" id="mem-rd">--</span>
-                        </div>
-                        <div class="stage-valid" id="mem-valid">---</div>
                     </div>
                 </div>
 
@@ -124,19 +94,11 @@
                 <div class="stage" id="stage-wb">
                     <div class="stage-header">WB</div>
                     <div class="stage-body">
-                        <div class="stage-field">
-                            <span class="field-label">rd:</span>
-                            <span class="field-value" id="wb-rd">--</span>
+                        <div class="stage-pc mono" id="wb-pc">0x0000</div>
+                        <div class="stage-asm" id="wb-asm">---</div>
+                        <div class="stage-detail">
+                            <span id="wb-info">---</span>
                         </div>
-                        <div class="stage-field">
-                            <span class="field-label">Data:</span>
-                            <span class="field-value mono" id="wb-data">--------</span>
-                        </div>
-                        <div class="stage-field">
-                            <span class="field-label">Src:</span>
-                            <span class="field-value" id="wb-src">---</span>
-                        </div>
-                        <div class="stage-valid" id="wb-valid">---</div>
                     </div>
                 </div>
             </div>
@@ -227,6 +189,7 @@
         </div>
     </main>
 
+    <script src="{{ url_for('static', filename='js/disasm.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>

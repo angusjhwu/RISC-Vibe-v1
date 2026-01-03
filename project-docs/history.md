@@ -1262,3 +1262,94 @@ Created comprehensive implementation plan in `project-docs/simulator_impl.md`:
 - Detailed file specifications
 - 40 test cases covering all functionality
 - Future enhancement ideas
+
+---
+
+## Session 10: Pipeline Visualizer Enhancements
+
+### User Request
+1. Add a hex/decimal toggle for the register file display
+2. Improve pipeline stage readability by showing PC and disassembled RISC-V instructions consistently across all 5 stages
+
+### Implementation
+
+#### 1. Register Format Toggle
+
+Added interactive toggle switch to switch register display between hexadecimal and decimal formats:
+
+**Changes:**
+- Added toggle switch HTML in `templates/index.html` (section header)
+- Added `regDisplayHex` state variable in `main.js`
+- Added `formatRegValue()` helper function for format conversion
+- Added CSS styles for toggle switch (`.toggle-switch`, `.toggle-slider`)
+
+#### 2. Pipeline Stage Readability Improvements
+
+**Problem:** Each pipeline stage displayed different information, making it difficult to track instruction flow through the pipeline. The trace format didn't include PC/instruction for later stages (EX, MEM, WB).
+
+**Solution:**
+
+**A. RTL Changes (trace_logger.sv):**
+- Added shadow pipeline registers to track PC and instruction through all stages:
+  ```systemverilog
+  logic [31:0] ex_pc_shadow, ex_instr_shadow;
+  logic [31:0] mem_pc_shadow, mem_instr_shadow;
+  logic [31:0] wb_pc_shadow, wb_instr_shadow;
+  ```
+- Shadow registers update each cycle, propagating values from IF/ID through the pipeline
+- Updated JSON trace output to include `pc` and `instr` fields for EX, MEM, and WB stages
+
+**B. JavaScript Disassembler (disasm.js):**
+- Created complete RV32I disassembler in JavaScript
+- Converts hex instruction to readable assembly (e.g., `0x00a00093` → `addi x1, x0, 10`)
+- Supports all instruction types: R, I, S, B, U, J, SYSTEM, FENCE
+- Proper immediate formatting and sign extension
+
+**C. UI Updates:**
+- Simplified stage layout with consistent structure:
+  - PC display (compact hex, e.g., `0x0010`)
+  - Disassembled instruction (e.g., `addi x1, x0, 10`)
+  - Stage-specific detail (result for EX, memory op for MEM, writeback info for WB)
+- Added CSS classes: `.stage-pc`, `.stage-asm`, `.stage-detail`
+- Flushed instructions shown with strikethrough styling
+
+### Files Created
+
+```
+sim/visualizer/static/js/disasm.js    # RV32I JavaScript disassembler
+```
+
+### Files Modified
+
+```
+rtl/trace_logger.sv                   # Added shadow registers for PC/instr tracking
+sim/visualizer/templates/index.html   # Simplified stage layout, added format toggle
+sim/visualizer/static/js/main.js      # Added disasm integration, format toggle handler
+sim/visualizer/static/css/style.css   # Added stage-pc, stage-asm, toggle styles
+```
+
+### Trace Format Changes
+
+Each stage now includes `pc` and `instr` fields:
+```json
+{
+  "cycle": 3,
+  "if": {"pc": "0x0000000c", "instr": "0x00208233", "valid": true},
+  "id": {"pc": "0x00000008", "instr": "0xffb00193", ...},
+  "ex": {"pc": "0x00000004", "instr": "0x01400113", ...},
+  "mem": {"pc": "0x00000000", "instr": "0x00a00093", ...},
+  "wb": {"pc": "0x00000000", "instr": "0x00000000", ...},
+  ...
+}
+```
+
+### Visual Improvements
+
+Each pipeline stage now displays:
+| Element | Description |
+|---------|-------------|
+| PC | Compact hex address (e.g., `0x0010`) |
+| Assembly | Disassembled instruction (e.g., `addi x1, x0, 10`) |
+| Detail | Stage-specific info (EX: result, MEM: R/W operation, WB: register write) |
+
+This makes it easy to visually track each instruction as it flows through IF → ID → EX → MEM → WB.
