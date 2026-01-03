@@ -32,6 +32,19 @@
         <section class="pipeline-section">
             <h2>Pipeline Stages</h2>
             <div class="pipeline-container">
+                <!-- SVG overlay for forwarding arrows -->
+                <svg class="forwarding-arrows" id="forwarding-arrows">
+                    <defs>
+                        <marker id="arrowhead-mem" markerWidth="8" markerHeight="8"
+                                refX="6" refY="4" orient="auto">
+                            <polygon points="0 0, 8 4, 0 8" fill="#ea580c"/>
+                        </marker>
+                        <marker id="arrowhead-wb" markerWidth="8" markerHeight="8"
+                                refX="6" refY="4" orient="auto">
+                            <polygon points="0 0, 8 4, 0 8" fill="#2563eb"/>
+                        </marker>
+                    </defs>
+                </svg>
                 <!-- IF Stage -->
                 <div class="stage" id="stage-if">
                     <div class="stage-header">IF</div>
@@ -184,11 +197,11 @@
                     <h2>Forwarding</h2>
                     <div class="forward-grid">
                         <div class="forward-item">
-                            <span class="forward-label">Forward A:</span>
+                            <span class="forward-label">rs1 (A):</span>
                             <span class="forward-value" id="forward-a">NONE</span>
                         </div>
                         <div class="forward-item">
-                            <span class="forward-label">Forward B:</span>
+                            <span class="forward-label">rs2 (B):</span>
                             <span class="forward-value" id="forward-b">NONE</span>
                         </div>
                     </div>

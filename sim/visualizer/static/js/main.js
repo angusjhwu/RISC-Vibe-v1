@@ -385,6 +385,7 @@ function renderCycle(cycleNum) {
     renderForwarding(cycle);
     renderHazards(cycle);
     updateProgramLetters(cycle);
+    renderForwardingArrows(cycle);
 }
 
 function renderPipelineStages(cycle) {
@@ -572,6 +573,96 @@ function updateHazardDot(el, active) {
     } else {
         el.classList.remove('active');
     }
+}
+
+// =============================================================================
+// Forwarding Arrows
+// =============================================================================
+
+/**
+ * Render forwarding arrows on the pipeline diagram.
+ * Draws curved arrows from MEM or WB stages back to EX stage.
+ */
+function renderForwardingArrows(cycle) {
+    const svg = document.getElementById('forwarding-arrows');
+    if (!svg) return;
+
+    const forward = cycle.forward || {};
+    const forwardA = forward.a;  // 'MEM', 'WB', or undefined/null
+    const forwardB = forward.b;
+
+    // Clear existing arrows (keep defs)
+    const defs = svg.querySelector('defs');
+    svg.innerHTML = '';
+    if (defs) svg.appendChild(defs);
+
+    // Get stage element positions
+    const exStage = document.getElementById('stage-ex');
+    const memStage = document.getElementById('stage-mem');
+    const wbStage = document.getElementById('stage-wb');
+    const container = svg.parentElement;
+
+    if (!exStage || !memStage || !wbStage || !container) return;
+
+    const containerRect = container.getBoundingClientRect();
+
+    // Draw MEM→EX arrow if forwarding from MEM
+    if (forwardA === 'MEM' || forwardB === 'MEM') {
+        const labels = [];
+        if (forwardA === 'MEM') labels.push('rs1');
+        if (forwardB === 'MEM') labels.push('rs2');
+        drawForwardArrow(svg, memStage, exStage, containerRect, 'mem', labels.join(', '), 20);
+    }
+
+    // Draw WB→EX arrow if forwarding from WB
+    if (forwardA === 'WB' || forwardB === 'WB') {
+        const labels = [];
+        if (forwardA === 'WB') labels.push('rs1');
+        if (forwardB === 'WB') labels.push('rs2');
+        drawForwardArrow(svg, wbStage, exStage, containerRect, 'wb', labels.join(', '), 40);
+    }
+}
+
+/**
+ * Draw a single forwarding arrow from one stage to another.
+ */
+function drawForwardArrow(svg, fromStage, toStage, containerRect, type, label, yOffset) {
+    const fromRect = fromStage.getBoundingClientRect();
+    const toRect = toStage.getBoundingClientRect();
+
+    // Calculate positions relative to container
+    const fromX = fromRect.left - containerRect.left + fromRect.width / 2;
+    const fromY = fromRect.bottom - containerRect.top + 5;
+    const toX = toRect.left - containerRect.left + toRect.width / 2;
+    const toY = toRect.bottom - containerRect.top + 5;
+
+    // Curved path going below the stages
+    const midY = Math.max(fromY, toY) + yOffset;
+    const controlOffset = 15;
+
+    // Create a smooth curved path
+    const path = `M ${fromX} ${fromY}
+                  C ${fromX} ${fromY + controlOffset},
+                    ${fromX} ${midY},
+                    ${(fromX + toX) / 2} ${midY}
+                  C ${toX} ${midY},
+                    ${toX} ${toY + controlOffset},
+                    ${toX} ${toY}`;
+
+    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathEl.setAttribute('d', path);
+    pathEl.setAttribute('class', `forward-arrow ${type}`);
+    pathEl.setAttribute('marker-end', `url(#arrowhead-${type})`);
+    svg.appendChild(pathEl);
+
+    // Add label at midpoint below the curve
+    const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    textEl.setAttribute('x', (fromX + toX) / 2);
+    textEl.setAttribute('y', midY + 12);
+    textEl.setAttribute('text-anchor', 'middle');
+    textEl.setAttribute('class', `forward-arrow-label ${type}`);
+    textEl.textContent = label;
+    svg.appendChild(textEl);
 }
 
 // =============================================================================

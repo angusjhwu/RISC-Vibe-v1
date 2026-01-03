@@ -1417,3 +1417,76 @@ Legend:
 - Same instruction can have multiple lit letters (when in multiple stages, e.g., during stalls)
 - Program view scrolls when content exceeds panel height
 - Responsive layout collapses gracefully on narrower screens
+
+---
+
+## Session 12: Forwarding Visualization Enhancement
+
+### User Request
+1. Clarify what "Forward A" and "Forward B" mean in the GUI
+2. Add visual arrows to the pipeline diagram showing data forwarding paths from MEM/WB stages back to EX stage
+
+### Implementation
+
+#### 1. Label Clarification
+
+Changed forwarding labels from generic "Forward A/B" to descriptive "rs1 (A)" and "rs2 (B)" to clarify that:
+- Forward A = ALU operand A (rs1 source register value)
+- Forward B = ALU operand B (rs2 source register value)
+
+#### 2. Visual Forwarding Arrows
+
+Added SVG-based curved arrows that appear below the pipeline stages when forwarding is active:
+
+**Arrow Types:**
+- **Orange arrow (MEM→EX):** Shows forwarding from MEM stage result to EX stage
+- **Blue arrow (WB→EX):** Shows forwarding from WB stage result to EX stage
+
+**Arrow Labels:**
+- Labels indicate which operand is being forwarded: "rs1", "rs2", or "rs1, rs2" (both)
+
+### Files Modified
+
+**sim/visualizer/templates/index.html:**
+- Added SVG overlay with arrow marker definitions (`<defs>` with `arrowhead-mem` and `arrowhead-wb` markers)
+- Changed labels from "Forward A:" to "rs1 (A):" and "Forward B:" to "rs2 (B):"
+
+**sim/visualizer/static/css/style.css:**
+- Made `.pipeline-container` position relative with extra bottom padding (60px) for arrows
+- Added `.forwarding-arrows` SVG overlay styles (absolute positioned, pointer-events none)
+- Added `.forward-arrow` path styles with `.mem` (orange) and `.wb` (blue) color variants
+- Added `.forward-arrow-label` text styles
+
+**sim/visualizer/static/js/main.js:**
+- Added `renderForwardingArrows(cycle)` function called from `renderCycle()`
+- Added `drawForwardArrow()` helper that creates bezier curve SVG paths
+- Arrows drawn dynamically based on `forward.a` and `forward.b` values from trace data
+
+**project-docs/forward_gui.md:**
+- Created implementation plan document
+
+### Visual Design
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Pipeline Stages                                                         │
+│                                                                          │
+│  ┌─────┐    ┌─────┐    ┌─────┐    ┌─────┐    ┌─────┐                   │
+│  │ IF  │ →  │ ID  │ →  │ EX  │ →  │ MEM │ →  │ WB  │                   │
+│  │0x04 │    │0x00 │    │0x04 │    │0x00 │    │0x08 │                   │
+│  │addi │    │addi │    │add  │    │addi │    │addi │                   │
+│  └─────┘    └─────┘    └──┬──┘    └──┬──┘    └──┬──┘                   │
+│                           │          │          │                        │
+│                           │◄─────────╯          │  (orange: MEM→EX)      │
+│                           │     rs1             │                        │
+│                           │◄────────────────────╯  (blue: WB→EX)         │
+│                                rs2                                       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Features
+- Arrows only appear when forwarding is active (not shown for NONE)
+- Multiple arrows can appear simultaneously (MEM and WB forwarding together)
+- Labels show which operand(s) are being forwarded
+- Color coding matches existing stage color scheme
+- Arrows update in real-time when stepping through cycles
