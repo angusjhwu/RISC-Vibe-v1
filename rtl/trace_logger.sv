@@ -80,13 +80,24 @@ module trace_logger
   //============================================================================
 
   // Convert 32-bit value to 8-digit lowercase hex string with 0x prefix
+  // Handles undefined (x) values by treating them as 0
   function automatic string hex32(input logic [31:0] val);
-    return $sformatf("0x%08x", val);
+    logic [31:0] safe_val;
+    // Replace any x or z bits with 0 for safe JSON output
+    safe_val = val;
+    for (int i = 0; i < 32; i++) begin
+      if (val[i] === 1'bx || val[i] === 1'bz) begin
+        safe_val[i] = 1'b0;
+      end
+    end
+    return $sformatf("0x%08x", safe_val);
   endfunction
 
   // Convert boolean to JSON boolean string
+  // Handles undefined (x) values by treating them as false
   function automatic string bool_str(input logic val);
-    return val ? "true" : "false";
+    if (val === 1'b1) return "true";
+    else return "false";  // Treat x, z, or 0 as false
   endfunction
 
   // Convert ALU operation enum to string
