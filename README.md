@@ -36,6 +36,7 @@ A 5-stage pipelined RISC-V processor implementing the RV32I base integer instruc
 - Interactive web-based visualization of pipeline execution
 - Cycle-by-cycle stepping with playback controls
 - Real-time display of all 5 pipeline stages with PC and disassembled instructions
+- **Program view panel** with FDXMW stage indicators showing instruction flow through pipeline
 - Register file contents with change highlighting and hex/decimal toggle
 - Hazard and forwarding signal visualization
 - JSON Lines trace format for external tool integration

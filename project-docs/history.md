@@ -1353,3 +1353,67 @@ Each pipeline stage now displays:
 | Detail | Stage-specific info (EX: result, MEM: R/W operation, WB: register write) |
 
 This makes it easy to visually track each instruction as it flows through IF → ID → EX → MEM → WB.
+
+---
+
+## Session 11: Program View Panel
+
+### User Request
+Add a program listing panel to the pipeline visualizer that shows the full program with stage indicator letters (FDXMW) that light up as instructions flow through the pipeline.
+
+### Implementation
+
+#### Program View Panel
+Added a new panel to the left side of the bottom section displaying:
+- Full scrollable program listing extracted from trace data
+- Stage indicator letters "FDXMW" (Fetch, Decode, eXecute, Memory, Writeback) per instruction
+- Letters light up (turn green) when the instruction is in that pipeline stage
+- Letters colored by state: green (valid), red (stalled), orange (flushed), gray (invalid)
+- Row highlighting when instruction is active in pipeline
+
+#### Files Modified
+
+**sim/visualizer/templates/index.html:**
+- Added `<section class="program-section">` with program container
+
+**sim/visualizer/static/css/style.css:**
+- Updated grid layout to 3 columns: `350px 1fr 320px` (Program | Registers | Controls)
+- Added responsive breakpoints for narrower screens
+- Added `.program-section`, `.program-container`, `.program-row` styles
+- Added `.stage-letters` and `.stage-letter` styles with state classes
+
+**sim/visualizer/static/js/main.js:**
+- Added `programListing: []` to state object
+- Added `buildProgramListing()` - extracts unique (PC, instruction) pairs from IF stage
+- Added `renderProgramListing()` - creates DOM rows with FDXMW letter spans
+- Added `updateProgramLetters(cycle)` - updates letter visibility based on current cycle
+- Integrated calls after trace load and in `renderCycle()`
+
+**project-docs/program_view_impl.md:**
+- Created detailed implementation plan document
+
+### Visual Design
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Program          │ Register File              │ Controls            │
+│ ──────────────── │ ─────────────────────────  │ ────────────────    │
+│ FDXMW 0x00 addi  │ x0  0x00000000  x8  ...    │ ⏮ ◀ ▶ ⏭           │
+│ FDXMW 0x04 addi  │ x1  0x0000000A  x9  ...    │ Cycle: 5 / 22      │
+│ FDXMW 0x08 addi  │ x2  0x00000014  x10 ...    │ Speed: ──●── 5 c/s │
+│ FDXMW 0x0c add   │ x3  0x0000001E  x11 ...    │                    │
+│ FDXMW 0x10 nop   │ ...                        │ Hazard Status      │
+│ FDXMW 0x14 ecall │                            │ ○ Stall IF  ...    │
+└─────────────────────────────────────────────────────────────────────┘
+
+Legend:
+  Active letters are green (or red/orange/gray for stalled/flushed/invalid)
+  Inactive letters are dimmed gray
+```
+
+### Features
+- Letters update in real-time as user steps through cycles
+- Multiple instructions can have lit letters simultaneously (pipeline is full)
+- Same instruction can have multiple lit letters (when in multiple stages, e.g., during stalls)
+- Program view scrolls when content exceeds panel height
+- Responsive layout collapses gracefully on narrower screens

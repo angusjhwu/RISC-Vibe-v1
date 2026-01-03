@@ -467,8 +467,17 @@ h2 {
    -------------------------------------------------------------------------- */
 .bottom-section {
     display: grid;
-    grid-template-columns: 1fr 320px;
+    grid-template-columns: 350px 1fr 320px;
     gap: var(--spacing-lg);
+}
+
+@media (max-width: 1100px) {
+    .bottom-section {
+        grid-template-columns: 1fr 320px;
+    }
+    .program-section {
+        grid-column: 1 / -1;
+    }
 }
 
 @media (max-width: 900px) {
@@ -481,6 +490,80 @@ h2 {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-lg);
+}
+
+/* --------------------------------------------------------------------------
+   Program Section
+   -------------------------------------------------------------------------- */
+.program-section {
+    background-color: white;
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    box-shadow: var(--shadow-md);
+}
+
+.program-container {
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+}
+
+.program-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-bottom: 1px solid var(--color-gray-100);
+}
+
+.program-row:hover {
+    background-color: var(--color-gray-50);
+}
+
+.program-row.in-pipeline {
+    background-color: rgba(22, 163, 74, 0.05);
+}
+
+/* Stage Letters */
+.stage-letters {
+    display: flex;
+    align-items: baseline;
+    gap: 1px;
+    min-width: 48px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 0.75rem;
+}
+
+/* Base letter style - dimmed by default */
+.stage-letter {
+    color: var(--color-gray-300);
+    transition: all var(--transition-fast);
+}
+
+/* Active letter states - lit up with stage color */
+.stage-letter.active {
+    color: var(--stage-valid);
+}
+
+/* Stalled/Flushed/Invalid states */
+.stage-letter.stalled { color: var(--stage-stalled); }
+.stage-letter.flushed { color: var(--stage-flushed); }
+.stage-letter.invalid { color: var(--stage-invalid); }
+
+/* Program Address and Instruction */
+.program-pc {
+    color: var(--color-gray-500);
+    min-width: 60px;
+}
+
+.program-asm {
+    color: var(--color-gray-800);
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* --------------------------------------------------------------------------

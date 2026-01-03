@@ -17,7 +17,8 @@ const state = {
     playbackSpeed: 5,       // Cycles per second
     playbackTimer: null,    // Timer ID for playback
     previousRegs: null,     // Previous cycle's register values (for highlighting changes)
-    regDisplayHex: true     // Register display format: true=hex, false=decimal
+    regDisplayHex: true,    // Register display format: true=hex, false=decimal
+    programListing: []      // Array of {pc, instr, asm} objects for program view
 };
 
 // ABI register names for tooltips
@@ -233,6 +234,10 @@ async function handleFileSelect(event) {
         state.currentCycle = 0;
         state.previousRegs = null;
 
+        // Build and render program listing
+        buildProgramListing();
+        renderProgramListing();
+
         // Update UI
         if (elements.totalCyclesEl) {
             elements.totalCyclesEl.textContent = state.totalCycles > 0 ? state.totalCycles - 1 : 0;
@@ -379,6 +384,7 @@ function renderCycle(cycleNum) {
     renderRegisters(cycle);
     renderForwarding(cycle);
     renderHazards(cycle);
+    updateProgramLetters(cycle);
 }
 
 function renderPipelineStages(cycle) {
@@ -565,6 +571,130 @@ function updateHazardDot(el, active) {
         el.classList.add('active');
     } else {
         el.classList.remove('active');
+    }
+}
+
+// =============================================================================
+// Program Listing
+// =============================================================================
+
+/**
+ * Build the program listing from trace data.
+ * Extracts unique (PC, instruction) pairs from the IF stage across all cycles.
+ */
+function buildProgramListing() {
+    const seen = new Map();  // PC -> {pc, instr, asm}
+
+    // Collect unique instructions from IF stage across all cycles
+    for (const cycle of state.cycles) {
+        const ifStage = cycle.if;
+        if (ifStage && ifStage.valid && ifStage.pc && ifStage.instr) {
+            const pc = ifStage.pc;
+            if (!seen.has(pc)) {
+                seen.set(pc, {
+                    pc: pc,
+                    instr: ifStage.instr,
+                    asm: disasm(ifStage.instr)
+                });
+            }
+        }
+    }
+
+    // Sort by PC address
+    state.programListing = Array.from(seen.values())
+        .sort((a, b) => parseInt(a.pc, 16) - parseInt(b.pc, 16));
+}
+
+/**
+ * Render the program listing with stage indicator letters.
+ * Creates DOM elements for each instruction row.
+ */
+function renderProgramListing() {
+    const container = document.getElementById('program-container');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    for (const entry of state.programListing) {
+        const row = document.createElement('div');
+        row.className = 'program-row';
+        row.dataset.pc = entry.pc;
+
+        row.innerHTML = `
+            <div class="stage-letters">
+                <span class="stage-letter f" data-stage="if">F</span>
+                <span class="stage-letter d" data-stage="id">D</span>
+                <span class="stage-letter x" data-stage="ex">X</span>
+                <span class="stage-letter m" data-stage="mem">M</span>
+                <span class="stage-letter w" data-stage="wb">W</span>
+            </div>
+            <span class="program-pc">${formatPC(entry.pc)}</span>
+            <span class="program-asm">${entry.asm}</span>
+        `;
+
+        container.appendChild(row);
+    }
+}
+
+/**
+ * Update stage indicator letters based on current cycle.
+ * Lights up letters when the instruction is in that pipeline stage.
+ */
+function updateProgramLetters(cycle) {
+    const stages = ['if', 'id', 'ex', 'mem', 'wb'];
+    const hazard = cycle.hazard || {};
+
+    // Build map of PC -> stage info for current cycle
+    const pcToStages = new Map();
+
+    for (const stage of stages) {
+        const stageData = cycle[stage];
+        if (stageData && stageData.pc) {
+            const pc = stageData.pc;
+            if (!pcToStages.has(pc)) {
+                pcToStages.set(pc, []);
+            }
+            pcToStages.get(pc).push({
+                stage: stage,
+                valid: stageData.valid,
+                stalled: (stage === 'if' && hazard.stall_if) ||
+                         (stage === 'id' && hazard.stall_id),
+                flushed: (stage === 'id' && hazard.flush_id) ||
+                         (stage === 'ex' && hazard.flush_ex)
+            });
+        }
+    }
+
+    // Update all program rows
+    const rows = document.querySelectorAll('.program-row');
+    for (const row of rows) {
+        const pc = row.dataset.pc;
+        const stageInfos = pcToStages.get(pc) || [];
+
+        // Update each letter in this row
+        const letters = row.querySelectorAll('.stage-letter');
+        for (const letter of letters) {
+            const stage = letter.dataset.stage;
+            const info = stageInfos.find(s => s.stage === stage);
+
+            // Reset classes
+            letter.classList.remove('active', 'stalled', 'flushed', 'invalid');
+
+            if (info) {
+                if (info.flushed) {
+                    letter.classList.add('active', 'flushed');
+                } else if (info.stalled) {
+                    letter.classList.add('active', 'stalled');
+                } else if (info.valid) {
+                    letter.classList.add('active');
+                } else {
+                    letter.classList.add('active', 'invalid');
+                }
+            }
+        }
+
+        // Highlight row if any instruction is in pipeline
+        row.classList.toggle('in-pipeline', stageInfos.length > 0);
     }
 }
 
