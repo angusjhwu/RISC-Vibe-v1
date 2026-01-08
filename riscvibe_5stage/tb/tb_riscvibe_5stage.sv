@@ -32,10 +32,8 @@ module tb_riscvibe_5stage;
   `define TESTPROG_FILE "../programs/test_alu.hex"
 `endif
 
-  // Trace logging enable (set via -DTRACE_ENABLE=1)
-`ifndef TRACE_ENABLE
-  `define TRACE_ENABLE 0
-`endif
+  // Trace logging enable (set via -DTRACE_ENABLE on command line)
+  // Do NOT define a default - let `ifdef work correctly
 
   // Trace output file
 `ifndef TRACE_FILE
