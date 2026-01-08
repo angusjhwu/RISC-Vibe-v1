@@ -114,9 +114,13 @@ class TraceParser:
         """
         return len(self._cycles)
 
-    def get_stats(self) -> dict:
+    def get_stats(self, architecture: dict = None) -> dict:
         """
         Compute execution statistics from the trace.
+
+        Args:
+            architecture: Optional architecture definition for dynamic signal names.
+                         If None, uses hardcoded 5-stage RISC-V signals.
 
         Returns:
             Dict containing:
@@ -131,19 +135,35 @@ class TraceParser:
         flush_cycles = 0
         instructions_retired = 0
 
+        # Get hazard signal keys from architecture or use defaults
+        if architecture and 'hazards' in architecture:
+            hazards = architecture['hazards']
+            stall_keys = [s['key'] for s in hazards.get('stall_signals', [])]
+            flush_keys = [s['key'] for s in hazards.get('flush_signals', [])]
+        else:
+            # Default 5-stage RISC-V signals
+            stall_keys = ['stall_if', 'stall_id']
+            flush_keys = ['flush_id', 'flush_ex']
+
+        # Get the last stage ID for counting retired instructions
+        if architecture and 'stages' in architecture:
+            last_stage_id = architecture['stages'][-1]['id']
+        else:
+            last_stage_id = 'wb'
+
         for cycle_data in self._cycles:
             # Count stall cycles
             hazard = cycle_data.get('hazard', {})
-            if hazard.get('stall_if') or hazard.get('stall_id'):
+            if any(hazard.get(key) for key in stall_keys):
                 stall_cycles += 1
 
             # Count flush cycles
-            if hazard.get('flush_id') or hazard.get('flush_ex'):
+            if any(hazard.get(key) for key in flush_keys):
                 flush_cycles += 1
 
             # Count retired instructions (valid writeback with write enabled)
-            wb = cycle_data.get('wb', {})
-            if wb.get('valid') and wb.get('write'):
+            last_stage = cycle_data.get(last_stage_id, {})
+            if last_stage.get('valid') and last_stage.get('write'):
                 instructions_retired += 1
 
         # Calculate CPI (avoid division by zero)

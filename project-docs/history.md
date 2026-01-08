@@ -1559,3 +1559,192 @@ if (ifPc) {
 
 ### Commits
 - `15979ec` - Fix trace logger to handle undefined x/z values for valid JSON output
+
+---
+
+## Session 13: Architecture File System for Flexible Pipeline Visualization
+
+### Overview
+
+Generalized the pipeline visualizer GUI to support arbitrary pipeline architectures through YAML configuration files. The previously hardcoded 5-stage RISC-V pipeline visualization can now dynamically adapt to any linear pipeline configuration.
+
+### User Requirements
+
+1. **Generalizable GUI** - Support any pipeline architecture, not just 5-stage RISC-V
+2. **Architecture file format** - Define stages, hazards, forwarding, register file in YAML
+3. **Linear pipelines only** - Sequential stages (A→B→C→D), no branching topology
+4. **Separate ISA from architecture** - Architecture defines pipeline structure, not instruction decoding
+5. **Strict validation** - Reject traces that don't match the loaded architecture schema
+
+### Architecture File Format
+
+Created YAML schema for defining pipeline architectures:
+
+```yaml
+name: "riscv_5stage"
+version: "1.0"
+description: "Classic 5-stage RISC-V pipeline"
+
+stages:
+  - id: "if"
+    name: "IF"
+    letter: "F"
+    fields:
+      - key: "pc"
+        format: "hex_compact"
+        class: "stage-pc"
+    detail_fields:
+      - key: null
+        label: "Fetching"
+        format: "static"
+
+hazards:
+  stall_signals:
+    - key: "stall_if"
+      stage: "if"
+      label: "Stall IF"
+  flush_signals:
+    - key: "flush_id"
+      stage: "id"
+      label: "Flush ID"
+
+forwarding:
+  enabled: true
+  source_field: "forward"
+  paths:
+    - key: "a"
+      label: "rs1"
+      target_stage: "ex"
+      sources:
+        - stage: "ex"
+          value: "EX"
+          color: "#e74c3c"
+
+register_file:
+  enabled: true
+  source_field: "regs"
+  count: 32
+  width: 32
+
+validation:
+  required_top_level:
+    - "cycle"
+  required_per_stage:
+    - "pc"
+    - "valid"
+```
+
+### Field Format Types
+
+Supported format types for displaying trace data:
+
+| Format | Description | Example Output |
+|--------|-------------|----------------|
+| `hex_compact` | Hex without 0x prefix | `00400000` |
+| `hex` | Full hex with prefix | `0x00400000` |
+| `decimal` | Decimal number | `42` |
+| `hex_smart` | Hex or decimal based on value | `0x12345678` or `42` |
+| `disasm` | Disassembled instruction | `addi x1, x0, 5` |
+| `register` | Register name | `x5` |
+| `string` | Raw string | `NONE` |
+| `static` | Static label text | `Fetching` |
+| `memory_op` | Memory operation details | `LW 0x1000 → 42` |
+| `writeback` | Writeback details | `x5 ← 42` |
+
+### Implementation
+
+#### New Files
+
+**sim/visualizer/architecture_parser.py**
+- `parse_architecture(yaml_content)` - Parse and validate YAML architecture
+- `validate_trace_against_architecture(cycle, arch, cycle_num)` - Validate trace data
+- `get_architecture_summary(arch)` - Generate human-readable summary
+- `ArchitectureError` exception class
+- Comprehensive validation of stages, hazards, forwarding paths
+
+**sim/visualizer/architectures/riscv_5stage.yaml**
+- Default 5-stage RISC-V pipeline configuration
+- Defines IF, ID, EX, MEM, WB stages
+- Hazard signals: stall_if, stall_id, flush_id, flush_ex
+- Forwarding paths: a (rs1), b (rs2) from MEM/WB
+
+**sim/visualizer/architectures/simple_3stage.yaml**
+- Example 3-stage pipeline (FETCH, EXEC, WB)
+- Demonstrates minimal configuration
+- Forwarding disabled
+
+**sim/visualizer/tests/test_architecture_parser.py**
+- 25 unit tests for parser and validator
+- Tests valid/invalid YAML, missing fields, duplicate IDs
+- Tests trace validation for missing stages, fields, hazards
+
+#### Modified Files
+
+**sim/visualizer/app.py**
+- Added `/api/architecture` POST endpoint for loading architecture files
+- Added `/api/architecture` GET endpoint for retrieving current architecture
+- Modified `/api/load` to require architecture and validate traces
+- Modified `/api/stats` to use architecture-defined signal names
+
+**sim/visualizer/trace_parser.py**
+- Updated `get_stats()` to accept optional architecture parameter
+- Dynamic hazard signal counting based on architecture definition
+
+**sim/visualizer/templates/index.html**
+- Added "Load Architecture" button with file input
+- Replaced hardcoded stage divs with dynamic container
+- Added architecture name display in header
+- Architecture must be loaded before trace files
+
+**sim/visualizer/static/js/main.js**
+- Complete refactor for dynamic architecture support
+- New state variables for architecture and element references
+- `handleArchitectureSelect()` / `loadArchitecture()` - Load architecture files
+- `generatePipelineStages()` - Create stage DOM elements dynamically
+- `generateHazardIndicators()` - Create hazard indicator DOM elements
+- `generateForwardingIndicators()` - Create forwarding indicator DOM elements
+- `generateArrowMarkers()` - Create SVG markers for forwarding arrows
+- `formatField()` - Format values based on field format type
+- All rendering functions now use architecture config
+
+**sim/visualizer/static/css/style.css**
+- `.header-buttons` - Flexbox container for header buttons
+- `.btn-secondary` - Secondary button styling
+- `.arch-info` / `.arch-name` - Architecture name display
+- `.no-architecture-message` - Placeholder when no architecture loaded
+
+**sim/visualizer/requirements.txt**
+- Added `pyyaml>=6.0` dependency
+
+### User Workflow
+
+1. Open visualizer in browser
+2. Click "Load Architecture" and select a YAML file (e.g., `riscv_5stage.yaml`)
+3. GUI dynamically generates pipeline stages, hazard indicators, forwarding paths
+4. Click "Load Trace" and select a JSONL trace file
+5. Trace is validated against loaded architecture
+6. Use playback controls to step through execution
+
+### Testing
+
+All 25 unit tests pass:
+
+```
+$ python -m pytest tests/test_architecture_parser.py -v
+========================= test session starts ==========================
+tests/test_architecture_parser.py::TestParseArchitecture::test_valid_minimal_architecture PASSED
+tests/test_architecture_parser.py::TestParseArchitecture::test_valid_full_architecture PASSED
+tests/test_architecture_parser.py::TestParseArchitecture::test_invalid_yaml_syntax PASSED
+tests/test_architecture_parser.py::TestParseArchitecture::test_missing_name PASSED
+tests/test_architecture_parser.py::TestParseArchitecture::test_missing_stages PASSED
+... (20 more tests)
+========================= 25 passed in 0.15s ===========================
+```
+
+### Key Design Decisions
+
+1. **YAML over JSON** - More human-readable for hand-editing architecture files
+2. **Strict validation** - Reject non-conforming traces early with clear error messages
+3. **Dynamic DOM generation** - All pipeline elements created from architecture config
+4. **Format types** - Flexible data display without embedding formatting logic in architecture files
+5. **Separate ISA** - Architecture defines structure; disassembly remains in trace data

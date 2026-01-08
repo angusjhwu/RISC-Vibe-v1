@@ -1,0 +1,175 @@
+# RISC-V 5-Stage Pipeline Architecture
+# This is the default architecture for RiscVibe visualizer
+---
+name: "riscv_5stage"
+version: "1.0"
+description: "Classic 5-stage RISC-V pipeline (IF, ID, EX, MEM, WB)"
+
+# Pipeline stages in execution order
+stages:
+  - id: "if"
+    name: "IF"
+    letter: "F"
+    fields:
+      - key: "pc"
+        format: "hex_compact"
+        class: "stage-pc"
+      - key: "instr"
+        format: "disasm"
+        class: "stage-asm"
+    detail_fields:
+      - key: null
+        label: "Fetching"
+        format: "static"
+
+  - id: "id"
+    name: "ID"
+    letter: "D"
+    fields:
+      - key: "pc"
+        format: "hex_compact"
+        class: "stage-pc"
+      - key: "instr"
+        format: "disasm"
+        class: "stage-asm"
+    detail_fields:
+      - key: "rs1"
+        label: "rs1:"
+        format: "register"
+      - key: "rs2"
+        label: "rs2:"
+        format: "register"
+
+  - id: "ex"
+    name: "EX"
+    letter: "X"
+    fields:
+      - key: "pc"
+        format: "hex_compact"
+        class: "stage-pc"
+      - key: "instr"
+        format: "disasm"
+        class: "stage-asm"
+    detail_fields:
+      - key: "result"
+        label: "Result:"
+        format: "hex_smart"
+
+  - id: "mem"
+    name: "MEM"
+    letter: "M"
+    fields:
+      - key: "pc"
+        format: "hex_compact"
+        class: "stage-pc"
+      - key: "instr"
+        format: "disasm"
+        class: "stage-asm"
+    detail_fields:
+      - key: "mem_op"
+        format: "memory_op"
+
+  - id: "wb"
+    name: "WB"
+    letter: "W"
+    fields:
+      - key: "pc"
+        format: "hex_compact"
+        class: "stage-pc"
+      - key: "instr"
+        format: "disasm"
+        class: "stage-asm"
+    detail_fields:
+      - key: "wb_info"
+        format: "writeback"
+
+# Hazard detection signals
+hazards:
+  stall_signals:
+    - key: "stall_if"
+      stage: "if"
+      label: "Stall IF"
+    - key: "stall_id"
+      stage: "id"
+      label: "Stall ID"
+  flush_signals:
+    - key: "flush_id"
+      stage: "id"
+      label: "Flush ID"
+    - key: "flush_ex"
+      stage: "ex"
+      label: "Flush EX"
+
+# Data forwarding configuration
+forwarding:
+  enabled: true
+  source_field: "forward"
+  paths:
+    - key: "a"
+      label: "rs1 (A)"
+      target_stage: "ex"
+      sources:
+        - stage: "mem"
+          value: "MEM"
+          color: "#ea580c"
+        - stage: "wb"
+          value: "WB"
+          color: "#2563eb"
+    - key: "b"
+      label: "rs2 (B)"
+      target_stage: "ex"
+      sources:
+        - stage: "mem"
+          value: "MEM"
+          color: "#ea580c"
+        - stage: "wb"
+          value: "WB"
+          color: "#2563eb"
+
+# Register file configuration
+register_file:
+  enabled: true
+  source_field: "regs"
+  count: 32
+  width: 32
+  abi_names:
+    - "zero"
+    - "ra"
+    - "sp"
+    - "gp"
+    - "tp"
+    - "t0"
+    - "t1"
+    - "t2"
+    - "s0/fp"
+    - "s1"
+    - "a0"
+    - "a1"
+    - "a2"
+    - "a3"
+    - "a4"
+    - "a5"
+    - "a6"
+    - "a7"
+    - "s2"
+    - "s3"
+    - "s4"
+    - "s5"
+    - "s6"
+    - "s7"
+    - "s8"
+    - "s9"
+    - "s10"
+    - "s11"
+    - "t3"
+    - "t4"
+    - "t5"
+    - "t6"
+
+# Trace validation rules
+validation:
+  required_top_level:
+    - "cycle"
+  required_per_stage:
+    - "pc"
+    - "valid"

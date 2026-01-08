@@ -1,0 +1,74 @@
+# Simple 3-Stage Pipeline Architecture Example
+# Demonstrates a minimal pipeline configuration for testing
+---
+name: "simple_3stage"
+version: "1.0"
+description: "Simple 3-stage pipeline: Fetch, Execute, Writeback"
+
+# Pipeline stages in execution order
+stages:
+  - id: "fetch"
+    name: "FETCH"
+    letter: "F"
+    fields:
+      - key: "pc"
+        format: "hex_compact"
+        class: "stage-pc"
+      - key: "instr"
+        format: "hex"
+        class: "stage-asm"
+    detail_fields: []
+
+  - id: "execute"
+    name: "EXEC"
+    letter: "E"
+    fields:
+      - key: "pc"
+        format: "hex_compact"
+        class: "stage-pc"
+      - key: "instr"
+        format: "hex"
+        class: "stage-asm"
+    detail_fields:
+      - key: "result"
+        label: "Result:"
+        format: "hex_smart"
+
+  - id: "writeback"
+    name: "WB"
+    letter: "W"
+    fields:
+      - key: "pc"
+        format: "hex_compact"
+        class: "stage-pc"
+    detail_fields:
+      - key: "rd"
+        label: "Dest:"
+        format: "register"
+
+# Simple hazard configuration
+hazards:
+  stall_signals:
+    - key: "stall"
+      stage: "fetch"
+      label: "Stall"
+  flush_signals: []
+
+# Forwarding disabled for simple pipeline
+forwarding:
+  enabled: false
+
+# Register file configuration (16 registers)
+register_file:
+  enabled: true
+  source_field: "regs"
+  count: 16
+  width: 32
+
+# Trace validation rules
+validation:
+  required_top_level:
+    - "cycle"
+  required_per_stage:
+    - "pc"
+    - "valid"

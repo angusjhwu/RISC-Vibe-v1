@@ -1,8 +1,9 @@
 /**
  * RISC-Vibe Pipeline Visualizer - Main Application Logic
  *
- * This module handles the interactive visualization of RISC-V pipeline traces,
+ * This module handles the interactive visualization of pipeline traces,
  * including playback controls, register file display, and hazard/forwarding status.
+ * Supports dynamic architecture configurations via YAML files.
  */
 
 // =============================================================================
@@ -18,11 +19,15 @@ const state = {
     playbackTimer: null,    // Timer ID for playback
     previousRegs: null,     // Previous cycle's register values (for highlighting changes)
     regDisplayHex: true,    // Register display format: true=hex, false=decimal
-    programListing: []      // Array of {pc, instr, asm} objects for program view
+    programListing: [],     // Array of {pc, instr, asm} objects for program view
+    architecture: null,     // Loaded architecture definition
+    stageElements: {},      // Dynamic stage DOM element references
+    hazardElements: {},     // Dynamic hazard DOM element references
+    forwardElements: {}     // Dynamic forward DOM element references
 };
 
-// ABI register names for tooltips
-const ABI_NAMES = [
+// Default ABI register names (can be overridden by architecture)
+const DEFAULT_ABI_NAMES = [
     'zero', 'ra', 'sp', 'gp', 'tp', 't0', 't1', 't2',
     's0/fp', 's1', 'a0', 'a1', 'a2', 'a3', 'a4', 'a5',
     'a6', 'a7', 's2', 's3', 's4', 's5', 's6', 's7',
@@ -38,25 +43,27 @@ let elements = {};
 function initElements() {
     elements = {
         // Header
+        loadArchBtn: document.getElementById('load-arch-btn'),
+        archFileInput: document.getElementById('arch-file-input'),
         loadTraceBtn: document.getElementById('load-trace-btn'),
         traceFileInput: document.getElementById('trace-file-input'),
+        archName: document.getElementById('arch-name'),
 
         // Loading/Error
         loadingOverlay: document.getElementById('loading-overlay'),
+        loadingMessage: document.getElementById('loading-message'),
         errorToast: document.getElementById('error-toast'),
         errorMessage: document.getElementById('error-message'),
         errorClose: document.getElementById('error-close'),
 
-        // Pipeline stages
-        stages: {
-            if: document.getElementById('stage-if'),
-            id: document.getElementById('stage-id'),
-            ex: document.getElementById('stage-ex'),
-            mem: document.getElementById('stage-mem'),
-            wb: document.getElementById('stage-wb')
-        },
+        // Pipeline container (stages generated dynamically)
+        pipelineContainer: document.getElementById('pipeline-container'),
+        noArchMessage: document.getElementById('no-arch-message'),
+        forwardingArrows: document.getElementById('forwarding-arrows'),
+        arrowDefs: document.getElementById('arrow-defs'),
 
         // Registers
+        registerSection: document.getElementById('register-section'),
         registerGrid: document.getElementById('register-grid'),
 
         // Controls
@@ -70,15 +77,11 @@ function initElements() {
         speedSlider: document.getElementById('speed-slider'),
         speedValue: document.getElementById('speed-value'),
 
-        // Hazards
-        hazardStallIf: document.getElementById('hazard-stall-if'),
-        hazardStallId: document.getElementById('hazard-stall-id'),
-        hazardFlushId: document.getElementById('hazard-flush-id'),
-        hazardFlushEx: document.getElementById('hazard-flush-ex'),
-
-        // Forwarding
-        forwardA: document.getElementById('forward-a'),
-        forwardB: document.getElementById('forward-b'),
+        // Hazards and Forwarding (containers - content generated dynamically)
+        hazardSection: document.getElementById('hazard-section'),
+        hazardGrid: document.getElementById('hazard-grid'),
+        forwardSection: document.getElementById('forward-section'),
+        forwardGrid: document.getElementById('forward-grid'),
 
         // Register format toggle
         regFormatToggle: document.getElementById('reg-format-toggle')
@@ -91,27 +94,9 @@ function initElements() {
 
 function init() {
     initElements();
-    initRegisterGrid();
     bindEventListeners();
     bindKeyboardShortcuts();
     updateControlsState();
-}
-
-function initRegisterGrid() {
-    if (!elements.registerGrid) return;
-    elements.registerGrid.innerHTML = '';
-
-    for (let i = 0; i < 32; i++) {
-        const cell = document.createElement('div');
-        cell.className = 'register-cell';
-        cell.id = `reg-${i}`;
-        cell.title = `x${i} (${ABI_NAMES[i]})`;
-        cell.innerHTML = `
-            <span class="register-name">x${i}</span>
-            <span class="register-value mono" id="reg-val-${i}">0x00000000</span>
-        `;
-        elements.registerGrid.appendChild(cell);
-    }
 }
 
 // =============================================================================
@@ -119,6 +104,17 @@ function initRegisterGrid() {
 // =============================================================================
 
 function bindEventListeners() {
+    // Load architecture button
+    if (elements.loadArchBtn) {
+        elements.loadArchBtn.addEventListener('click', () => {
+            elements.archFileInput.click();
+        });
+    }
+
+    if (elements.archFileInput) {
+        elements.archFileInput.addEventListener('change', handleArchitectureSelect);
+    }
+
     // Load trace button
     if (elements.loadTraceBtn) {
         elements.loadTraceBtn.addEventListener('click', () => {
@@ -191,6 +187,350 @@ function bindKeyboardShortcuts() {
 }
 
 // =============================================================================
+// Architecture Loading
+// =============================================================================
+
+async function handleArchitectureSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    showLoading('Loading architecture...');
+
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch('/api/architecture', {
+            method: 'POST',
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Failed to load architecture');
+        }
+
+        // Store architecture and generate UI
+        state.architecture = data.architecture;
+        loadArchitecture(data.architecture);
+
+        // Update architecture name display
+        if (elements.archName) {
+            elements.archName.textContent = data.summary?.name || 'Unknown';
+        }
+
+        // Enable trace loading
+        if (elements.loadTraceBtn) {
+            elements.loadTraceBtn.disabled = false;
+        }
+
+        // Clear any existing trace data
+        state.cycles = [];
+        state.totalCycles = 0;
+        state.currentCycle = 0;
+        updateControlsState();
+
+        hideLoading();
+
+    } catch (error) {
+        hideLoading();
+        showError(error.message);
+    }
+
+    event.target.value = '';
+}
+
+/**
+ * Load architecture configuration and generate dynamic UI elements.
+ */
+function loadArchitecture(arch) {
+    state.architecture = arch;
+
+    // Generate pipeline stages
+    generatePipelineStages(arch);
+
+    // Generate hazard indicators
+    generateHazardIndicators(arch);
+
+    // Generate forwarding indicators
+    generateForwardingIndicators(arch);
+
+    // Generate arrow markers for forwarding
+    generateArrowMarkers(arch);
+
+    // Initialize register grid based on architecture
+    initRegisterGrid(arch);
+
+    // Hide the "no architecture" message
+    if (elements.noArchMessage) {
+        elements.noArchMessage.style.display = 'none';
+    }
+
+    // Show/hide sections based on architecture config
+    if (elements.hazardSection) {
+        const hasHazards = arch.hazards &&
+            ((arch.hazards.stall_signals?.length > 0) ||
+             (arch.hazards.flush_signals?.length > 0));
+        elements.hazardSection.style.display = hasHazards ? 'block' : 'none';
+    }
+
+    if (elements.forwardSection) {
+        const hasForwarding = arch.forwarding?.enabled &&
+                              arch.forwarding?.paths?.length > 0;
+        elements.forwardSection.style.display = hasForwarding ? 'block' : 'none';
+    }
+
+    if (elements.registerSection) {
+        const hasRegFile = arch.register_file?.enabled !== false;
+        elements.registerSection.style.display = hasRegFile ? 'block' : 'none';
+    }
+}
+
+/**
+ * Generate pipeline stage DOM elements based on architecture definition.
+ */
+function generatePipelineStages(arch) {
+    const container = elements.pipelineContainer;
+    if (!container) return;
+
+    // Clear existing stages (preserve SVG and message)
+    const svg = elements.forwardingArrows;
+    const noArchMsg = elements.noArchMessage;
+
+    container.innerHTML = '';
+    if (svg) container.appendChild(svg);
+    if (noArchMsg) container.appendChild(noArchMsg);
+
+    state.stageElements = {};
+
+    const stages = arch.stages || [];
+
+    stages.forEach((stageCfg, index) => {
+        // Create stage div
+        const stageDiv = document.createElement('div');
+        stageDiv.className = 'stage';
+        stageDiv.id = `stage-${stageCfg.id}`;
+
+        // Create stage header
+        const header = document.createElement('div');
+        header.className = 'stage-header';
+        header.textContent = stageCfg.name;
+        stageDiv.appendChild(header);
+
+        // Create stage body
+        const body = document.createElement('div');
+        body.className = 'stage-body';
+
+        // Add main fields
+        if (stageCfg.fields) {
+            for (const field of stageCfg.fields) {
+                const fieldDiv = document.createElement('div');
+                fieldDiv.className = field.class || 'stage-field';
+                fieldDiv.id = `${stageCfg.id}-${field.key || 'static'}`;
+                if (field.format === 'hex_compact' || field.format === 'hex') {
+                    fieldDiv.classList.add('mono');
+                }
+                fieldDiv.textContent = '---';
+                body.appendChild(fieldDiv);
+            }
+        }
+
+        // Add detail fields
+        if (stageCfg.detail_fields && stageCfg.detail_fields.length > 0) {
+            const detailDiv = document.createElement('div');
+            detailDiv.className = 'stage-detail';
+
+            for (const field of stageCfg.detail_fields) {
+                if (field.label) {
+                    const labelSpan = document.createElement('span');
+                    labelSpan.className = 'field-label';
+                    labelSpan.textContent = field.label;
+                    detailDiv.appendChild(labelSpan);
+                }
+
+                if (field.format !== 'static') {
+                    const valueSpan = document.createElement('span');
+                    valueSpan.id = `${stageCfg.id}-${field.key}`;
+                    if (field.format === 'hex_compact' || field.format === 'hex' ||
+                        field.format === 'hex_smart') {
+                        valueSpan.classList.add('mono');
+                    }
+                    valueSpan.textContent = '---';
+                    detailDiv.appendChild(valueSpan);
+                }
+            }
+
+            body.appendChild(detailDiv);
+        }
+
+        stageDiv.appendChild(body);
+
+        // Insert before SVG and message
+        if (svg) {
+            container.insertBefore(stageDiv, svg);
+        } else {
+            container.appendChild(stageDiv);
+        }
+
+        // Add arrow between stages (except after last)
+        if (index < stages.length - 1) {
+            const arrow = document.createElement('div');
+            arrow.className = 'arrow';
+            arrow.innerHTML = '&rarr;';
+            if (svg) {
+                container.insertBefore(arrow, svg);
+            } else {
+                container.appendChild(arrow);
+            }
+        }
+
+        // Store reference
+        state.stageElements[stageCfg.id] = stageDiv;
+    });
+}
+
+/**
+ * Generate hazard indicator DOM elements based on architecture.
+ */
+function generateHazardIndicators(arch) {
+    const grid = elements.hazardGrid;
+    if (!grid) return;
+
+    grid.innerHTML = '';
+    state.hazardElements = {};
+
+    if (!arch.hazards) return;
+
+    const allSignals = [
+        ...(arch.hazards.stall_signals || []),
+        ...(arch.hazards.flush_signals || [])
+    ];
+
+    for (const signal of allSignals) {
+        const item = document.createElement('div');
+        item.className = 'hazard-item';
+
+        const dot = document.createElement('span');
+        dot.className = 'hazard-dot';
+        dot.id = `hazard-${signal.key}`;
+        item.appendChild(dot);
+
+        const label = document.createElement('span');
+        label.className = 'hazard-label';
+        label.textContent = signal.label || signal.key;
+        item.appendChild(label);
+
+        grid.appendChild(item);
+
+        state.hazardElements[signal.key] = dot;
+    }
+}
+
+/**
+ * Generate forwarding indicator DOM elements based on architecture.
+ */
+function generateForwardingIndicators(arch) {
+    const grid = elements.forwardGrid;
+    if (!grid) return;
+
+    grid.innerHTML = '';
+    state.forwardElements = {};
+
+    const forwarding = arch.forwarding;
+    if (!forwarding?.enabled || !forwarding?.paths) return;
+
+    for (const path of forwarding.paths) {
+        const item = document.createElement('div');
+        item.className = 'forward-item';
+
+        const label = document.createElement('span');
+        label.className = 'forward-label';
+        label.textContent = `${path.label || path.key}:`;
+        item.appendChild(label);
+
+        const value = document.createElement('span');
+        value.className = 'forward-value';
+        value.id = `forward-${path.key}`;
+        value.textContent = 'NONE';
+        item.appendChild(value);
+
+        grid.appendChild(item);
+
+        state.forwardElements[path.key] = value;
+    }
+}
+
+/**
+ * Generate SVG arrow markers based on architecture forwarding config.
+ */
+function generateArrowMarkers(arch) {
+    const defs = elements.arrowDefs;
+    if (!defs) return;
+
+    defs.innerHTML = '';
+
+    const forwarding = arch.forwarding;
+    if (!forwarding?.enabled || !forwarding?.paths) return;
+
+    // Collect unique colors from sources
+    const colorMap = new Map();
+
+    for (const path of forwarding.paths) {
+        if (path.sources) {
+            for (const source of path.sources) {
+                if (source.color && !colorMap.has(source.stage)) {
+                    colorMap.set(source.stage, source.color);
+                }
+            }
+        }
+    }
+
+    // Create markers for each unique source stage
+    for (const [stage, color] of colorMap) {
+        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+        marker.setAttribute('id', `arrowhead-${stage}`);
+        marker.setAttribute('markerWidth', '8');
+        marker.setAttribute('markerHeight', '8');
+        marker.setAttribute('refX', '6');
+        marker.setAttribute('refY', '4');
+        marker.setAttribute('orient', 'auto');
+
+        const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        polygon.setAttribute('points', '0 0, 8 4, 0 8');
+        polygon.setAttribute('fill', color);
+
+        marker.appendChild(polygon);
+        defs.appendChild(marker);
+    }
+}
+
+/**
+ * Initialize register grid based on architecture config.
+ */
+function initRegisterGrid(arch) {
+    if (!elements.registerGrid) return;
+    elements.registerGrid.innerHTML = '';
+
+    const regFile = arch.register_file || {};
+    const count = regFile.count || 32;
+    const abiNames = regFile.abi_names || DEFAULT_ABI_NAMES;
+
+    for (let i = 0; i < count; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'register-cell';
+        cell.id = `reg-${i}`;
+        const abiName = abiNames[i] || `x${i}`;
+        cell.title = `x${i} (${abiName})`;
+        cell.innerHTML = `
+            <span class="register-name">x${i}</span>
+            <span class="register-value mono" id="reg-val-${i}">0x00000000</span>
+        `;
+        elements.registerGrid.appendChild(cell);
+    }
+}
+
+// =============================================================================
 // File Handling
 // =============================================================================
 
@@ -198,7 +538,13 @@ async function handleFileSelect(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    showLoading();
+    if (!state.architecture) {
+        showError('Please load an architecture file first');
+        event.target.value = '';
+        return;
+    }
+
+    showLoading('Loading trace...');
 
     try {
         const formData = new FormData();
@@ -210,12 +556,15 @@ async function handleFileSelect(event) {
             body: formData
         });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || 'Failed to upload trace file');
-        }
-
         const data = await response.json();
+
+        if (!response.ok) {
+            let errorMsg = data.message || 'Failed to upload trace file';
+            if (data.details && data.details.length > 0) {
+                errorMsg += '\n' + data.details.slice(0, 5).join('\n');
+            }
+            throw new Error(errorMsg);
+        }
 
         if (!data.success) {
             throw new Error(data.message || 'Failed to load trace');
@@ -388,45 +737,122 @@ function renderCycle(cycleNum) {
     renderForwardingArrows(cycle);
 }
 
+/**
+ * Render all pipeline stages based on architecture configuration.
+ */
 function renderPipelineStages(cycle) {
-    // IF Stage
-    const ifStage = cycle.if || {};
-    updateStageField('if-pc', formatPC(ifStage.pc));
-    updateStageField('if-asm', disasm(ifStage.instr));
-    updateStageClass('if', ifStage.valid !== false, cycle.hazard);
+    const arch = state.architecture;
+    if (!arch || !arch.stages) return;
 
-    // ID Stage
-    const idStage = cycle.id || {};
-    updateStageField('id-pc', formatPC(idStage.pc));
-    updateStageField('id-asm', idStage.valid ? disasm(idStage.instr) : '---');
-    updateStageField('id-rs1', idStage.rs1 !== undefined ? `x${idStage.rs1}` : '--');
-    updateStageField('id-rs2', idStage.rs2 !== undefined ? `x${idStage.rs2}` : '--');
-    updateStageClass('id', idStage.valid, cycle.hazard);
+    for (const stageCfg of arch.stages) {
+        const stageData = cycle[stageCfg.id] || {};
+        renderStage(stageCfg, stageData, cycle.hazard || {});
+    }
+}
 
-    // EX Stage
-    const exStage = cycle.ex || {};
-    updateStageField('ex-pc', formatPC(exStage.pc));
-    updateStageField('ex-asm', exStage.valid ? disasm(exStage.instr) : '---');
-    updateStageField('ex-result', exStage.valid ? formatResult(exStage.result) : '---');
-    updateStageClass('ex', exStage.valid, cycle.hazard);
+/**
+ * Render a single pipeline stage.
+ */
+function renderStage(stageCfg, stageData, hazard) {
+    const stageEl = state.stageElements[stageCfg.id];
+    if (!stageEl) return;
 
-    // MEM Stage
-    const memStage = cycle.mem || {};
-    updateStageField('mem-pc', formatPC(memStage.pc));
-    updateStageField('mem-asm', memStage.valid ? disasm(memStage.instr) : '---');
-    const memOp = memStage.read ? `R @${formatAddr(memStage.addr)}` :
-                  (memStage.write ? `W @${formatAddr(memStage.addr)}` : '---');
-    updateStageField('mem-op', memStage.valid ? memOp : '---');
-    updateStageClass('mem', memStage.valid, cycle.hazard);
+    // Render main fields
+    if (stageCfg.fields) {
+        for (const field of stageCfg.fields) {
+            const fieldEl = document.getElementById(`${stageCfg.id}-${field.key || 'static'}`);
+            if (!fieldEl) continue;
 
-    // WB Stage
-    const wbStage = cycle.wb || {};
-    updateStageField('wb-pc', formatPC(wbStage.pc));
-    updateStageField('wb-asm', wbStage.valid ? disasm(wbStage.instr) : '---');
-    const wbInfo = wbStage.write && wbStage.rd !== 0 ?
-                   `x${wbStage.rd} <- ${formatResult(wbStage.data)}` : '---';
-    updateStageField('wb-info', wbStage.valid ? wbInfo : '---');
-    updateStageClass('wb', wbStage.valid, cycle.hazard);
+            const value = stageData[field.key];
+            fieldEl.textContent = formatField(value, field, stageData);
+        }
+    }
+
+    // Render detail fields
+    if (stageCfg.detail_fields) {
+        for (const field of stageCfg.detail_fields) {
+            if (field.format === 'static') continue;
+
+            const fieldEl = document.getElementById(`${stageCfg.id}-${field.key}`);
+            if (!fieldEl) continue;
+
+            const value = stageData[field.key];
+            fieldEl.textContent = formatField(value, field, stageData);
+        }
+    }
+
+    // Update stage class (valid/stalled/flushed)
+    updateStageClass(stageCfg.id, stageData.valid, hazard);
+}
+
+/**
+ * Format a field value based on its format type.
+ */
+function formatField(value, fieldCfg, stageData) {
+    const format = fieldCfg.format;
+
+    // Handle undefined/null values
+    if (value === undefined || value === null) {
+        if (format === 'static') return '';
+        if (format === 'memory_op') return formatMemoryOp(stageData);
+        if (format === 'writeback') return formatWriteback(stageData);
+        return '---';
+    }
+
+    switch (format) {
+        case 'hex_compact':
+            return formatPC(value);
+
+        case 'hex':
+            return formatHex(value);
+
+        case 'decimal':
+            return formatDecimal(value);
+
+        case 'hex_smart':
+            return formatResult(value);
+
+        case 'disasm':
+            // Only disasm if stage is valid
+            if (stageData.valid === false) return '---';
+            return disasm(value);
+
+        case 'register':
+            return typeof value === 'number' ? `x${value}` : '--';
+
+        case 'string':
+            return value.toString();
+
+        case 'memory_op':
+            return formatMemoryOp(stageData);
+
+        case 'writeback':
+            return formatWriteback(stageData);
+
+        default:
+            return value.toString();
+    }
+}
+
+/**
+ * Format memory operation based on stage data.
+ */
+function formatMemoryOp(stageData) {
+    if (!stageData.valid) return '---';
+    if (stageData.read) return `R @${formatAddr(stageData.addr)}`;
+    if (stageData.write) return `W @${formatAddr(stageData.addr)}`;
+    return '---';
+}
+
+/**
+ * Format writeback operation based on stage data.
+ */
+function formatWriteback(stageData) {
+    if (!stageData.valid) return '---';
+    if (stageData.write && stageData.rd !== 0) {
+        return `x${stageData.rd} <- ${formatResult(stageData.data)}`;
+    }
+    return '---';
 }
 
 /**
@@ -434,10 +860,29 @@ function renderPipelineStages(cycle) {
  */
 function formatPC(pc) {
     if (!pc) return '---';
-    // Parse the hex string and format compactly
     const val = parseInt(pc, 16);
     if (isNaN(val)) return pc;
     return '0x' + val.toString(16).padStart(4, '0');
+}
+
+/**
+ * Format as full hex
+ */
+function formatHex(value) {
+    if (!value) return '---';
+    const val = parseInt(value, 16);
+    if (isNaN(val)) return value;
+    return '0x' + val.toString(16).padStart(8, '0');
+}
+
+/**
+ * Format as decimal
+ */
+function formatDecimal(value) {
+    if (!value) return '---';
+    const val = parseInt(value, 16);
+    if (isNaN(val)) return value;
+    return val.toString(10);
 }
 
 /**
@@ -451,7 +896,7 @@ function formatAddr(addr) {
 }
 
 /**
- * Format result value compactly
+ * Format result value compactly (decimal if small, hex if large)
  */
 function formatResult(result) {
     if (!result) return '---';
@@ -462,19 +907,37 @@ function formatResult(result) {
     return '0x' + val.toString(16);
 }
 
-function updateStageField(id, value) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = value || '---';
-}
-
-function updateStageClass(stageKey, valid, hazard) {
-    const stageEl = elements.stages[stageKey];
+/**
+ * Update stage visual class based on valid/stall/flush state.
+ */
+function updateStageClass(stageId, valid, hazard) {
+    const stageEl = state.stageElements[stageId];
     if (!stageEl) return;
 
     hazard = hazard || {};
-    const stalled = (stageKey === 'if' && hazard.stall_if) || (stageKey === 'id' && hazard.stall_id);
-    const flushed = (stageKey === 'id' && hazard.flush_id) || (stageKey === 'ex' && hazard.flush_ex);
+
+    // Check if this stage is stalled or flushed based on architecture
+    let stalled = false;
+    let flushed = false;
+
+    const arch = state.architecture;
+    if (arch && arch.hazards) {
+        // Check stall signals
+        for (const signal of arch.hazards.stall_signals || []) {
+            if (signal.stage === stageId && hazard[signal.key]) {
+                stalled = true;
+                break;
+            }
+        }
+
+        // Check flush signals
+        for (const signal of arch.hazards.flush_signals || []) {
+            if (signal.stage === stageId && hazard[signal.key]) {
+                flushed = true;
+                break;
+            }
+        }
+    }
 
     stageEl.classList.remove('valid', 'invalid', 'stalled', 'flushed');
 
@@ -490,10 +953,15 @@ function updateStageClass(stageKey, valid, hazard) {
 }
 
 function renderRegisters(cycle) {
-    const regs = cycle.regs || [];
+    const arch = state.architecture;
+    const regFile = arch?.register_file || {};
+    const sourceField = regFile.source_field || 'regs';
+    const count = regFile.count || 32;
+
+    const regs = cycle[sourceField] || [];
     const prevRegs = state.previousRegs || [];
 
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < count; i++) {
         const cell = document.getElementById(`reg-${i}`);
         const valueEl = document.getElementById(`reg-val-${i}`);
         if (!cell || !valueEl) continue;
@@ -512,8 +980,6 @@ function renderRegisters(cycle) {
 
 /**
  * Format a register value based on the current display mode (hex or decimal)
- * @param {string|number|undefined} value - The register value
- * @returns {string} Formatted string representation
  */
 function formatRegValue(value) {
     // Convert to numeric value first
@@ -534,36 +1000,58 @@ function formatRegValue(value) {
 }
 
 function renderForwarding(cycle) {
-    const fwd = cycle.forward || {};
+    const arch = state.architecture;
+    const forwarding = arch?.forwarding;
 
-    updateForwardingIndicator(elements.forwardA, fwd.a);
-    updateForwardingIndicator(elements.forwardB, fwd.b);
+    if (!forwarding?.enabled || !forwarding?.paths) return;
+
+    const sourceField = forwarding.source_field || 'forward';
+    const fwd = cycle[sourceField] || {};
+
+    for (const path of forwarding.paths) {
+        const el = state.forwardElements[path.key];
+        if (!el) continue;
+
+        const value = fwd[path.key];
+        updateForwardingIndicator(el, value, path);
+    }
 }
 
-function updateForwardingIndicator(el, value) {
+function updateForwardingIndicator(el, value, pathCfg) {
     if (!el) return;
 
+    // Remove all source-based classes
     el.classList.remove('none', 'mem', 'wb');
+    for (const source of pathCfg.sources || []) {
+        el.classList.remove(source.stage);
+    }
 
-    if (value === 'MEM') {
-        el.textContent = 'MEM';
-        el.classList.add('mem');
-    } else if (value === 'WB') {
-        el.textContent = 'WB';
-        el.classList.add('wb');
-    } else {
+    // Find matching source
+    let matched = false;
+    for (const source of pathCfg.sources || []) {
+        if (value === source.value) {
+            el.textContent = source.value;
+            el.classList.add(source.stage);
+            el.style.color = source.color || '';
+            matched = true;
+            break;
+        }
+    }
+
+    if (!matched) {
         el.textContent = 'NONE';
         el.classList.add('none');
+        el.style.color = '';
     }
 }
 
 function renderHazards(cycle) {
     const hazard = cycle.hazard || {};
 
-    updateHazardDot(elements.hazardStallIf, hazard.stall_if);
-    updateHazardDot(elements.hazardStallId, hazard.stall_id);
-    updateHazardDot(elements.hazardFlushId, hazard.flush_id);
-    updateHazardDot(elements.hazardFlushEx, hazard.flush_ex);
+    for (const key of Object.keys(state.hazardElements)) {
+        const el = state.hazardElements[key];
+        updateHazardDot(el, hazard[key]);
+    }
 }
 
 function updateHazardDot(el, active) {
@@ -581,45 +1069,75 @@ function updateHazardDot(el, active) {
 
 /**
  * Render forwarding arrows on the pipeline diagram.
- * Draws curved arrows from MEM or WB stages back to EX stage.
  */
 function renderForwardingArrows(cycle) {
-    const svg = document.getElementById('forwarding-arrows');
+    const svg = elements.forwardingArrows;
     if (!svg) return;
 
-    const forward = cycle.forward || {};
-    const forwardA = forward.a;  // 'MEM', 'WB', or undefined/null
-    const forwardB = forward.b;
+    const arch = state.architecture;
+    const forwarding = arch?.forwarding;
+
+    if (!forwarding?.enabled) return;
+
+    const sourceField = forwarding.source_field || 'forward';
+    const forward = cycle[sourceField] || {};
 
     // Clear existing arrows (keep defs)
     const defs = svg.querySelector('defs');
     svg.innerHTML = '';
     if (defs) svg.appendChild(defs);
 
-    // Get stage element positions
-    const exStage = document.getElementById('stage-ex');
-    const memStage = document.getElementById('stage-mem');
-    const wbStage = document.getElementById('stage-wb');
     const container = svg.parentElement;
-
-    if (!exStage || !memStage || !wbStage || !container) return;
+    if (!container) return;
 
     const containerRect = container.getBoundingClientRect();
 
-    // Draw MEM→EX arrow if forwarding from MEM
-    if (forwardA === 'MEM' || forwardB === 'MEM') {
-        const labels = [];
-        if (forwardA === 'MEM') labels.push('rs1');
-        if (forwardB === 'MEM') labels.push('rs2');
-        drawForwardArrow(svg, memStage, exStage, containerRect, 'mem', labels.join(', '), 20);
+    // Group by source stage to draw combined arrows
+    const sourceArrows = new Map();  // sourceStage -> {labels: [], color: ''}
+
+    for (const path of forwarding.paths || []) {
+        const value = forward[path.key];
+        if (!value || value === 'NONE') continue;
+
+        // Find the source config
+        for (const source of path.sources || []) {
+            if (value === source.value) {
+                if (!sourceArrows.has(source.stage)) {
+                    sourceArrows.set(source.stage, {
+                        labels: [],
+                        color: source.color,
+                        targetStage: path.target_stage
+                    });
+                }
+                const info = sourceArrows.get(source.stage);
+                // Add label like "rs1" or "rs2" based on path key
+                const label = path.key === 'a' ? 'rs1' : (path.key === 'b' ? 'rs2' : path.key);
+                if (!info.labels.includes(label)) {
+                    info.labels.push(label);
+                }
+                break;
+            }
+        }
     }
 
-    // Draw WB→EX arrow if forwarding from WB
-    if (forwardA === 'WB' || forwardB === 'WB') {
-        const labels = [];
-        if (forwardA === 'WB') labels.push('rs1');
-        if (forwardB === 'WB') labels.push('rs2');
-        drawForwardArrow(svg, wbStage, exStage, containerRect, 'wb', labels.join(', '), 40);
+    // Draw arrows for each source stage
+    let yOffsetBase = 20;
+    for (const [sourceStage, info] of sourceArrows) {
+        const fromStage = state.stageElements[sourceStage];
+        const toStage = state.stageElements[info.targetStage];
+
+        if (fromStage && toStage) {
+            drawForwardArrow(
+                svg,
+                fromStage,
+                toStage,
+                containerRect,
+                sourceStage,
+                info.labels.join(', '),
+                yOffsetBase
+            );
+            yOffsetBase += 20;
+        }
     }
 }
 
@@ -671,21 +1189,23 @@ function drawForwardArrow(svg, fromStage, toStage, containerRect, type, label, y
 
 /**
  * Build the program listing from trace data.
- * Extracts unique (PC, instruction) pairs from the IF stage across all cycles.
+ * Extracts unique (PC, instruction) pairs from the first stage across all cycles.
  */
 function buildProgramListing() {
     const seen = new Map();  // PC -> {pc, instr, asm}
+    const arch = state.architecture;
+    const firstStageId = arch?.stages?.[0]?.id || 'if';
 
-    // Collect unique instructions from IF stage across all cycles
+    // Collect unique instructions from first stage across all cycles
     for (const cycle of state.cycles) {
-        const ifStage = cycle.if;
-        if (ifStage && ifStage.valid && ifStage.pc && ifStage.instr) {
-            const pc = ifStage.pc;
+        const firstStage = cycle[firstStageId];
+        if (firstStage && firstStage.valid && firstStage.pc && firstStage.instr) {
+            const pc = firstStage.pc;
             if (!seen.has(pc)) {
                 seen.set(pc, {
                     pc: pc,
-                    instr: ifStage.instr,
-                    asm: disasm(ifStage.instr)
+                    instr: firstStage.instr,
+                    asm: disasm(firstStage.instr)
                 });
             }
         }
@@ -698,7 +1218,6 @@ function buildProgramListing() {
 
 /**
  * Render the program listing with stage indicator letters.
- * Creates DOM elements for each instruction row.
  */
 function renderProgramListing() {
     const container = document.getElementById('program-container');
@@ -706,22 +1225,38 @@ function renderProgramListing() {
 
     container.innerHTML = '';
 
+    const arch = state.architecture;
+    const stages = arch?.stages || [];
+
     for (const entry of state.programListing) {
         const row = document.createElement('div');
         row.className = 'program-row';
         row.dataset.pc = entry.pc;
 
-        row.innerHTML = `
-            <div class="stage-letters">
-                <span class="stage-letter f" data-stage="if">F</span>
-                <span class="stage-letter d" data-stage="id">D</span>
-                <span class="stage-letter x" data-stage="ex">X</span>
-                <span class="stage-letter m" data-stage="mem">M</span>
-                <span class="stage-letter w" data-stage="wb">W</span>
-            </div>
-            <span class="program-pc">${formatPC(entry.pc)}</span>
-            <span class="program-asm">${entry.asm}</span>
-        `;
+        // Create stage letters div
+        const lettersDiv = document.createElement('div');
+        lettersDiv.className = 'stage-letters';
+
+        for (const stageCfg of stages) {
+            const letterSpan = document.createElement('span');
+            letterSpan.className = `stage-letter ${stageCfg.letter.toLowerCase()}`;
+            letterSpan.dataset.stage = stageCfg.id;
+            letterSpan.textContent = stageCfg.letter;
+            lettersDiv.appendChild(letterSpan);
+        }
+
+        row.appendChild(lettersDiv);
+
+        // Add PC and assembly
+        const pcSpan = document.createElement('span');
+        pcSpan.className = 'program-pc';
+        pcSpan.textContent = formatPC(entry.pc);
+        row.appendChild(pcSpan);
+
+        const asmSpan = document.createElement('span');
+        asmSpan.className = 'program-asm';
+        asmSpan.textContent = entry.asm;
+        row.appendChild(asmSpan);
 
         container.appendChild(row);
     }
@@ -729,29 +1264,47 @@ function renderProgramListing() {
 
 /**
  * Update stage indicator letters based on current cycle.
- * Lights up letters when the instruction is in that pipeline stage.
  */
 function updateProgramLetters(cycle) {
-    const stages = ['if', 'id', 'ex', 'mem', 'wb'];
+    const arch = state.architecture;
+    const stages = arch?.stages || [];
     const hazard = cycle.hazard || {};
 
     // Build map of PC -> stage info for current cycle
     const pcToStages = new Map();
 
-    for (const stage of stages) {
-        const stageData = cycle[stage];
+    for (const stageCfg of stages) {
+        const stageData = cycle[stageCfg.id];
         if (stageData && stageData.pc) {
             const pc = stageData.pc;
             if (!pcToStages.has(pc)) {
                 pcToStages.set(pc, []);
             }
+
+            // Check if stalled or flushed based on architecture
+            let stalled = false;
+            let flushed = false;
+
+            if (arch.hazards) {
+                for (const signal of arch.hazards.stall_signals || []) {
+                    if (signal.stage === stageCfg.id && hazard[signal.key]) {
+                        stalled = true;
+                        break;
+                    }
+                }
+                for (const signal of arch.hazards.flush_signals || []) {
+                    if (signal.stage === stageCfg.id && hazard[signal.key]) {
+                        flushed = true;
+                        break;
+                    }
+                }
+            }
+
             pcToStages.get(pc).push({
-                stage: stage,
+                stage: stageCfg.id,
                 valid: stageData.valid,
-                stalled: (stage === 'if' && hazard.stall_if) ||
-                         (stage === 'id' && hazard.stall_id),
-                flushed: (stage === 'id' && hazard.flush_id) ||
-                         (stage === 'ex' && hazard.flush_ex)
+                stalled: stalled,
+                flushed: flushed
             });
         }
     }
@@ -788,10 +1341,11 @@ function updateProgramLetters(cycle) {
         row.classList.toggle('in-pipeline', stageInfos.length > 0);
     }
 
-    // Auto-scroll to the instruction currently being fetched (IF stage)
-    const ifPc = cycle.if?.pc;
-    if (ifPc) {
-        const fetchRow = document.querySelector(`.program-row[data-pc="${ifPc}"]`);
+    // Auto-scroll to the instruction currently being fetched (first stage)
+    const firstStageId = stages[0]?.id;
+    const firstStagePc = cycle[firstStageId]?.pc;
+    if (firstStagePc) {
+        const fetchRow = document.querySelector(`.program-row[data-pc="${firstStagePc}"]`);
         if (fetchRow) {
             fetchRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
@@ -802,7 +1356,8 @@ function updateProgramLetters(cycle) {
 // UI Utilities
 // =============================================================================
 
-function showLoading() {
+function showLoading(message) {
+    if (elements.loadingMessage) elements.loadingMessage.textContent = message || 'Loading...';
     if (elements.loadingOverlay) elements.loadingOverlay.classList.remove('hidden');
 }
 
@@ -813,7 +1368,7 @@ function hideLoading() {
 function showError(message) {
     if (elements.errorMessage) elements.errorMessage.textContent = message;
     if (elements.errorToast) elements.errorToast.classList.remove('hidden');
-    setTimeout(hideError, 5000);
+    setTimeout(hideError, 8000);  // Longer timeout for validation errors
 }
 
 function hideError() {

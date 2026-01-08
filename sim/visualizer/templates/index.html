@@ -10,14 +10,21 @@
     <!-- Header -->
     <header class="header">
         <h1>RISC-Vibe Pipeline Visualizer</h1>
-        <button id="load-trace-btn" class="btn btn-primary">Load Trace</button>
-        <input type="file" id="trace-file-input" accept=".jsonl,.json" hidden>
+        <div class="header-buttons">
+            <button id="load-arch-btn" class="btn btn-secondary">Load Architecture</button>
+            <input type="file" id="arch-file-input" accept=".yaml,.yml" hidden>
+            <button id="load-trace-btn" class="btn btn-primary" disabled>Load Trace</button>
+            <input type="file" id="trace-file-input" accept=".jsonl,.json" hidden>
+        </div>
+        <div class="arch-info" id="arch-info">
+            <span class="arch-name" id="arch-name">No architecture loaded</span>
+        </div>
     </header>
 
     <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay hidden">
         <div class="spinner"></div>
-        <p>Loading trace...</p>
+        <p id="loading-message">Loading...</p>
     </div>
 
     <!-- Error Toast -->
@@ -31,88 +38,16 @@
         <!-- Pipeline Diagram -->
         <section class="pipeline-section">
             <h2>Pipeline Stages</h2>
-            <div class="pipeline-container">
-                <!-- SVG overlay for forwarding arrows -->
+            <div class="pipeline-container" id="pipeline-container">
+                <!-- SVG overlay for forwarding arrows (markers generated dynamically) -->
                 <svg class="forwarding-arrows" id="forwarding-arrows">
-                    <defs>
-                        <marker id="arrowhead-mem" markerWidth="8" markerHeight="8"
-                                refX="6" refY="4" orient="auto">
-                            <polygon points="0 0, 8 4, 0 8" fill="#ea580c"/>
-                        </marker>
-                        <marker id="arrowhead-wb" markerWidth="8" markerHeight="8"
-                                refX="6" refY="4" orient="auto">
-                            <polygon points="0 0, 8 4, 0 8" fill="#2563eb"/>
-                        </marker>
+                    <defs id="arrow-defs">
+                        <!-- Arrow markers will be generated dynamically based on architecture -->
                     </defs>
                 </svg>
-                <!-- IF Stage -->
-                <div class="stage" id="stage-if">
-                    <div class="stage-header">IF</div>
-                    <div class="stage-body">
-                        <div class="stage-pc mono" id="if-pc">0x0000</div>
-                        <div class="stage-asm" id="if-asm">---</div>
-                        <div class="stage-detail">
-                            <span class="field-label">Fetching</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="arrow">&rarr;</div>
-
-                <!-- ID Stage -->
-                <div class="stage" id="stage-id">
-                    <div class="stage-header">ID</div>
-                    <div class="stage-body">
-                        <div class="stage-pc mono" id="id-pc">0x0000</div>
-                        <div class="stage-asm" id="id-asm">---</div>
-                        <div class="stage-detail">
-                            <span class="field-label">rs1:</span><span id="id-rs1">--</span>
-                            <span class="field-label">rs2:</span><span id="id-rs2">--</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="arrow">&rarr;</div>
-
-                <!-- EX Stage -->
-                <div class="stage" id="stage-ex">
-                    <div class="stage-header">EX</div>
-                    <div class="stage-body">
-                        <div class="stage-pc mono" id="ex-pc">0x0000</div>
-                        <div class="stage-asm" id="ex-asm">---</div>
-                        <div class="stage-detail">
-                            <span class="field-label">Result:</span>
-                            <span class="mono" id="ex-result">---</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="arrow">&rarr;</div>
-
-                <!-- MEM Stage -->
-                <div class="stage" id="stage-mem">
-                    <div class="stage-header">MEM</div>
-                    <div class="stage-body">
-                        <div class="stage-pc mono" id="mem-pc">0x0000</div>
-                        <div class="stage-asm" id="mem-asm">---</div>
-                        <div class="stage-detail">
-                            <span id="mem-op">---</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="arrow">&rarr;</div>
-
-                <!-- WB Stage -->
-                <div class="stage" id="stage-wb">
-                    <div class="stage-header">WB</div>
-                    <div class="stage-body">
-                        <div class="stage-pc mono" id="wb-pc">0x0000</div>
-                        <div class="stage-asm" id="wb-asm">---</div>
-                        <div class="stage-detail">
-                            <span id="wb-info">---</span>
-                        </div>
-                    </div>
+                <!-- Stage elements will be generated dynamically based on architecture -->
+                <div class="no-architecture-message" id="no-arch-message">
+                    Load an architecture file to begin
                 </div>
             </div>
         </section>
@@ -128,7 +63,7 @@
             </section>
 
             <!-- Register File -->
-            <section class="register-section">
+            <section class="register-section" id="register-section">
                 <div class="section-header">
                     <h2>Register File</h2>
                     <div class="reg-format-toggle">
@@ -170,40 +105,18 @@
                 </section>
 
                 <!-- Hazard Status -->
-                <section class="hazard-section">
+                <section class="hazard-section" id="hazard-section">
                     <h2>Hazard Status</h2>
-                    <div class="hazard-grid">
-                        <div class="hazard-item">
-                            <span class="hazard-dot" id="hazard-stall-if"></span>
-                            <span class="hazard-label">Stall IF</span>
-                        </div>
-                        <div class="hazard-item">
-                            <span class="hazard-dot" id="hazard-stall-id"></span>
-                            <span class="hazard-label">Stall ID</span>
-                        </div>
-                        <div class="hazard-item">
-                            <span class="hazard-dot" id="hazard-flush-id"></span>
-                            <span class="hazard-label">Flush ID</span>
-                        </div>
-                        <div class="hazard-item">
-                            <span class="hazard-dot" id="hazard-flush-ex"></span>
-                            <span class="hazard-label">Flush EX</span>
-                        </div>
+                    <div class="hazard-grid" id="hazard-grid">
+                        <!-- Generated dynamically based on architecture -->
                     </div>
                 </section>
 
                 <!-- Forwarding Status -->
-                <section class="forward-section">
+                <section class="forward-section" id="forward-section">
                     <h2>Forwarding</h2>
-                    <div class="forward-grid">
-                        <div class="forward-item">
-                            <span class="forward-label">rs1 (A):</span>
-                            <span class="forward-value" id="forward-a">NONE</span>
-                        </div>
-                        <div class="forward-item">
-                            <span class="forward-label">rs2 (B):</span>
-                            <span class="forward-value" id="forward-b">NONE</span>
-                        </div>
+                    <div class="forward-grid" id="forward-grid">
+                        <!-- Generated dynamically based on architecture -->
                     </div>
                 </section>
             </div>

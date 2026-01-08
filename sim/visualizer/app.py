@@ -11,6 +11,12 @@ from flask import Flask, request, jsonify, render_template
 from werkzeug.utils import secure_filename
 
 from trace_parser import TraceParser
+from architecture_parser import (
+    parse_architecture,
+    validate_trace_against_architecture,
+    get_architecture_summary,
+    ArchitectureError
+)
 
 
 # Flask application setup
@@ -24,8 +30,9 @@ app = Flask(
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max upload
 app.config['DEBUG'] = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
 
-# Global trace parser instance
+# Global state
 _trace_parser: TraceParser | None = None
+_architecture: dict | None = None
 
 
 def get_parser() -> TraceParser | None:
@@ -37,6 +44,17 @@ def set_parser(parser: TraceParser | None) -> None:
     """Set the trace parser instance."""
     global _trace_parser
     _trace_parser = parser
+
+
+def get_architecture() -> dict | None:
+    """Get the current architecture definition."""
+    return _architecture
+
+
+def set_architecture(arch: dict | None) -> None:
+    """Set the architecture definition."""
+    global _architecture
+    _architecture = arch
 
 
 # CORS middleware for local development
@@ -75,20 +93,112 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/api/architecture', methods=['POST', 'OPTIONS'])
+def load_architecture():
+    """
+    Upload and load an architecture definition file.
+
+    Expects multipart form data with 'file' field containing the YAML architecture.
+
+    Returns:
+        JSON: {"success": true, "architecture": {...}} on success
+        JSON: {"error": "...", "message": "..."} on failure
+    """
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        return '', 204
+
+    # Check for file in request
+    if 'file' not in request.files:
+        return jsonify({
+            'error': 'No file provided',
+            'message': 'Request must include a file field'
+        }), 400
+
+    file = request.files['file']
+
+    # Check for empty filename
+    if file.filename == '':
+        return jsonify({
+            'error': 'No file selected',
+            'message': 'File field is empty'
+        }), 400
+
+    try:
+        # Read YAML content
+        yaml_content = file.read().decode('utf-8')
+
+        # Parse and validate
+        architecture = parse_architecture(yaml_content)
+        set_architecture(architecture)
+
+        # Clear any loaded trace since it may not match new architecture
+        set_parser(None)
+
+        return jsonify({
+            'success': True,
+            'architecture': architecture,
+            'summary': get_architecture_summary(architecture)
+        })
+
+    except ArchitectureError as e:
+        return jsonify({
+            'error': 'Invalid architecture file',
+            'message': str(e)
+        }), 400
+    except Exception as e:
+        return jsonify({
+            'error': 'Failed to parse architecture',
+            'message': str(e)
+        }), 400
+
+
+@app.route('/api/architecture', methods=['GET'])
+def get_current_architecture():
+    """
+    Get the currently loaded architecture definition.
+
+    Returns:
+        JSON: {"architecture": {...}, "summary": {...}} if loaded
+        JSON: {"error": "...", "message": "..."} if not loaded
+    """
+    architecture = get_architecture()
+
+    if architecture is None:
+        return jsonify({
+            'error': 'No architecture loaded',
+            'message': 'Upload an architecture file first using POST /api/architecture'
+        }), 404
+
+    return jsonify({
+        'architecture': architecture,
+        'summary': get_architecture_summary(architecture)
+    })
+
+
 @app.route('/api/load', methods=['POST', 'OPTIONS'])
 def load_trace():
     """
     Upload and load a trace file.
 
     Expects multipart form data with 'file' field containing the JSONL trace.
+    Requires an architecture to be loaded first for validation.
 
     Returns:
         JSON: {"success": true, "cycles": N} on success
-        JSON: {"error": "...", "message": "..."} on failure
+        JSON: {"error": "...", "message": "...", "details": [...]} on failure
     """
     # Handle CORS preflight
     if request.method == 'OPTIONS':
         return '', 204
+
+    # Check for architecture
+    architecture = get_architecture()
+    if architecture is None:
+        return jsonify({
+            'error': 'No architecture loaded',
+            'message': 'Load an architecture file first using /api/architecture'
+        }), 400
 
     # Check for file in request
     if 'file' not in request.files:
@@ -115,11 +225,32 @@ def load_trace():
 
         # Parse the trace
         parser = TraceParser(filepath)
-        set_parser(parser)
 
-        # Clean up temp file (data is now in memory)
+        # Validate trace against architecture (check first few cycles)
+        validation_errors = []
+        cycles_to_check = min(10, parser.total_cycles)
+
+        for i in range(cycles_to_check):
+            cycle_data = parser.get_cycle(i)
+            if cycle_data:
+                errors = validate_trace_against_architecture(
+                    cycle_data, architecture, i + 1
+                )
+                validation_errors.extend(errors)
+
+        # Clean up temp file
         os.remove(filepath)
         os.rmdir(temp_dir)
+
+        # If validation errors, reject the trace
+        if validation_errors:
+            return jsonify({
+                'error': 'Trace validation failed',
+                'message': 'Trace file does not match the loaded architecture',
+                'details': validation_errors[:20]  # Limit to first 20 errors
+            }), 400
+
+        set_parser(parser)
 
         return jsonify({
             'success': True,
@@ -202,7 +333,9 @@ def get_stats():
             'message': 'Upload a trace file first using /api/load'
         }), 404
 
-    return jsonify(parser.get_stats())
+    # Pass architecture for dynamic signal names
+    architecture = get_architecture()
+    return jsonify(parser.get_stats(architecture))
 
 
 @app.route('/api/range/<int:start>/<int:end>', methods=['GET'])

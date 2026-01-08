@@ -122,6 +122,26 @@ h2 {
     color: var(--color-gray-800);
 }
 
+.header-buttons {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.arch-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 0.75rem;
+}
+
+.arch-name {
+    font-family: var(--font-mono);
+    color: var(--color-gray-500);
+    background-color: var(--color-gray-100);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+}
+
 /* --------------------------------------------------------------------------
    Buttons
    -------------------------------------------------------------------------- */
@@ -152,6 +172,15 @@ h2 {
 
 .btn-primary:hover:not(:disabled) {
     background-color: var(--color-primary-hover);
+}
+
+.btn-secondary {
+    background-color: var(--color-gray-600);
+    color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background-color: var(--color-gray-700);
 }
 
 .btn-control {
@@ -294,6 +323,17 @@ h2 {
     padding: var(--spacing-md) 0;
     padding-bottom: 60px; /* Space for forwarding arrows below stages */
     overflow-x: auto;
+    min-height: 200px;
+}
+
+.no-architecture-message {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    color: var(--color-gray-500);
+    font-size: 0.875rem;
+    font-style: italic;
 }
 
 /* Forwarding Arrows SVG Overlay */
