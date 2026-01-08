@@ -1748,3 +1748,158 @@ tests/test_architecture_parser.py::TestParseArchitecture::test_missing_stages PA
 3. **Dynamic DOM generation** - All pipeline elements created from architecture config
 4. **Format types** - Flexible data display without embedding formatting logic in architecture files
 5. **Separate ISA** - Architecture defines structure; disassembly remains in trace data
+
+---
+
+## Session 14: Processor Demo - Multi-Architecture Support
+
+### User Request
+Implement `project-docs/PROCESSOR_DEMO.md`:
+1. Reorganize 5-stage processor into `riscvibe_5stage/` directory
+2. Recreate original single-stage processor from git history in `riscvibe_1stage/`
+3. Create architecture files and trace loggers for both
+4. Create documentation for running both processors
+
+### Implementation
+
+#### Phase 1: 5-Stage Processor Reorganization
+
+**Directory Structure:**
+```
+riscvibe_5stage/
+├── rtl/              # All RTL source files moved here
+├── tb/               # Testbench
+├── sim/              # Simulation outputs
+│   └── traces/       # Generated traces
+├── programs -> ../programs  # Symlink to shared programs
+├── architecture.yaml # Visualizer config
+└── Makefile          # Build system
+```
+
+**Key Changes:**
+- Moved all RTL files from `./rtl/` to `./riscvibe_5stage/rtl/`
+- Created dedicated Makefile with compile, sim, trace targets
+- Fixed TRACE_ENABLE ifdef bug in testbench (was always true because macro was defined to 0)
+- Symlinked programs directory to share test programs
+
+#### Phase 2: Single-Stage Processor Recreation
+
+**Git History Analysis:**
+- Commit `5f4b1ca` contains the original single-cycle design
+- Key characteristic: **combinational instruction memory** (no synchronous register)
+- This is a true single-cycle processor where all operations complete in one clock
+
+**Files Extracted from Git:**
+```bash
+git show 5f4b1ca:rtl/riscvibe_top.sv > riscvibe_1stage/rtl/riscvibe_1stage_top.sv
+git show 5f4b1ca:rtl/instruction_mem.sv > riscvibe_1stage/rtl/instruction_mem.sv
+# ... (all RTL files)
+```
+
+**New Files Created:**
+
+1. **trace_logger_1stage.sv** - Simplified trace logger for single-stage:
+   - Single "cpu" stage instead of 5 pipeline stages
+   - Outputs: cycle, pc, instr, rd, rs1, rs2, result, data, write flags
+   - No pipeline hazards (single-cycle has no RAW hazards)
+
+2. **architecture.yaml** for single-stage:
+   ```yaml
+   name: "riscv_1stage"
+   stages:
+     - id: "cpu"
+       name: "CPU"
+       letter: "X"
+   hazards:
+     stall_signals: []
+     flush_signals: []
+   ```
+
+3. **tb_riscvibe_1stage.sv** - Adapted testbench:
+   - Instantiates `riscvibe_1stage_top`
+   - Includes trace logger under `TRACE_ENABLE`
+   - Simplified forwarding detection (WB-to-same-cycle only)
+
+4. **Makefile** - Build system matching 5-stage structure
+
+#### Phase 3: Verification
+
+**Single-Stage Test Results:**
+```
+$ make PROGRAM=test_alu
+Simulation complete!
+x10 (a0) = 0x00000000 (0)  # PASS
+
+$ make trace PROGRAM=test_alu
+Trace saved to: sim/traces/test_alu_trace.jsonl
+```
+
+**Trace Format Verified:**
+```json
+{"cycle":0,"cpu":{"pc":"0x00000004","instr":"0x01400113","rd":2,"rs1":0,"rs2":20,"result":"0x00000014","data":"0x00000014","write":true,"mem_read":false,"mem_write":false,"branch_taken":false,"valid":true},"regs":[...],"hazard":{},"forward":{"rs1":"NONE","rs2":"NONE"}}
+```
+
+#### Phase 4: Documentation
+
+Created `project-docs/PROCESSORS.md`:
+- Overview of both processor implementations
+- Directory structure explanation
+- Build and run commands for each
+- Visualizer usage instructions
+- Comparison table (CPI, clock frequency, hazards, etc.)
+- Quick reference commands
+
+### Files Created
+
+```
+riscvibe_1stage/
+├── rtl/
+│   ├── riscvibe_pkg.sv
+│   ├── alu.sv
+│   ├── branch_unit.sv
+│   ├── control_unit.sv
+│   ├── data_memory.sv
+│   ├── immediate_gen.sv
+│   ├── instruction_mem.sv
+│   ├── program_counter.sv
+│   ├── register_file.sv
+│   ├── riscvibe_1stage_top.sv
+│   ├── trace_logger_1stage.sv
+│   └── disasm.sv
+├── tb/
+│   └── tb_riscvibe_1stage.sv
+├── sim/
+│   └── traces/
+├── programs -> ../programs
+├── architecture.yaml
+└── Makefile
+
+project-docs/
+├── PROCESSORS.md          # New user guide
+└── proc_demo_impl.md      # Implementation plan
+```
+
+### Architecture Comparison
+
+| Feature | Single-Stage | 5-Stage Pipeline |
+|---------|--------------|------------------|
+| Stages | 1 (CPU) | 5 (IF, ID, EX, MEM, WB) |
+| CPI | 1 | 1 (ideal), higher with hazards |
+| Instruction Memory | Combinational | Synchronous |
+| Pipeline Hazards | None | Data + Control |
+| Forwarding | N/A | EX→EX, MEM→EX, WB→ID |
+| Architecture File | `riscv_1stage` | `riscv_5stage` |
+
+### Key Insights
+
+1. **TRACE_ENABLE Bug:** The testbench had `define TRACE_ENABLE 0` which made `ifdef TRACE_ENABLE` always true (macro defined regardless of value). Fixed by removing the default definition.
+
+2. **Single-Cycle Characteristics:**
+   - Combinational IMEM means instruction is available same cycle as PC change
+   - No pipeline registers needed
+   - All instruction phases (fetch, decode, execute, memory, writeback) complete in one cycle
+   - No data hazards since all writes complete before next instruction reads
+
+3. **Trace Format Difference:**
+   - Single-stage has one "cpu" object with all state
+   - 5-stage has separate "if", "id", "ex", "mem", "wb" objects

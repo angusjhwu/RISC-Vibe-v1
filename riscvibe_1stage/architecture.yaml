@@ -1,0 +1,69 @@
+# Single-Stage (Single-Cycle) RISC-V Processor Architecture
+# All operations (fetch, decode, execute, memory, writeback) complete in one cycle
+---
+name: "riscv_1stage"
+version: "1.0"
+description: "Single-cycle RISC-V processor - all operations in one clock cycle"
+
+# Single pipeline stage
+stages:
+  - id: "cpu"
+    name: "CPU"
+    letter: "X"
+    fields:
+      - key: "pc"
+        format: "hex_compact"
+        class: "stage-pc"
+      - key: "instr"
+        format: "hex"
+        class: "stage-instr"
+    detail_fields:
+      - key: "result"
+        label: "ALU Result:"
+        format: "hex_smart"
+      - key: "data"
+        label: "Write Data:"
+        format: "hex_smart"
+      - key: null
+        label: "Writeback"
+        format: "writeback"
+
+# No hazards in single-cycle design
+hazards:
+  stall_signals: []
+  flush_signals: []
+
+# Simple WB-to-decode forwarding
+forwarding:
+  enabled: true
+  source_field: "forward"
+  paths:
+    - key: "rs1"
+      label: "rs1"
+      target_stage: "cpu"
+      sources:
+        - stage: "cpu"
+          value: "WB"
+          color: "#3498db"
+    - key: "rs2"
+      label: "rs2"
+      target_stage: "cpu"
+      sources:
+        - stage: "cpu"
+          value: "WB"
+          color: "#3498db"
+
+# Register file configuration
+register_file:
+  enabled: true
+  source_field: "regs"
+  count: 32
+  width: 32
+
+# Trace validation rules
+validation:
+  required_top_level:
+    - "cycle"
+  required_per_stage:
+    - "pc"
+    - "valid"
