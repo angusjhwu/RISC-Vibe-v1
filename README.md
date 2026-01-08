@@ -1,6 +1,12 @@
 # RiscVibe
 
-A 5-stage pipelined RISC-V processor implementing the RV32I base integer instruction set, written in SystemVerilog. Includes a custom Python assembler and comprehensive test suite.
+Two RISC-V processor implementations: a single-cycle processor and a 5-stage pipelined processor, both implementing the RV32I base integer instruction set in SystemVerilog. Includes a custom Python assembler, comprehensive test suite, and interactive pipeline visualizer.
+
+**Processors:**
+- **Single-stage** (`riscvibe_1stage/`) - All operations complete in one clock cycle, combinational instruction memory, no pipeline hazards
+- **5-stage pipeline** (`riscvibe_5stage/`) - Classic IF/ID/EX/MEM/WB pipeline with data forwarding and hazard detection
+
+See [project-docs/PROCESSORS.md](project-docs/PROCESSORS.md) for detailed comparison and usage guide.
 
 ## Features
 
@@ -45,41 +51,30 @@ A 5-stage pipelined RISC-V processor implementing the RV32I base integer instruc
 
 ```
 RiscVibe/
-├── rtl/                          # SystemVerilog RTL modules
-│   ├── riscvibe_pkg.sv           # Package with types, opcodes, control signals
-│   ├── riscvibe_5stage_top.sv    # 5-stage pipeline top module
-│   ├── if_stage.sv               # Instruction Fetch stage
-│   ├── id_stage.sv               # Instruction Decode stage
-│   ├── ex_stage.sv               # Execute stage
-│   ├── mem_stage.sv              # Memory Access stage
-│   ├── wb_stage.sv               # Write Back stage
-│   ├── hazard_unit.sv            # Load-use hazard detection
-│   ├── forwarding_unit.sv        # Data forwarding control
-│   ├── alu.sv                    # Arithmetic Logic Unit
-│   ├── branch_unit.sv            # Branch comparison logic
-│   ├── control_unit.sv           # Instruction decode/control
-│   ├── register_file.sv          # 32x32-bit register file
-│   ├── data_memory.sv            # Data memory
-│   ├── immediate_gen.sv          # Immediate generator
-│   ├── instruction_mem.sv        # Instruction ROM
-│   ├── trace_logger.sv           # JSON trace generator for visualizer
-│   └── disasm.sv                 # RV32I disassembler package
-├── tb/                           # Testbenches
-│   └── tb_riscvibe_5stage.sv     # 5-stage pipeline testbench
+├── riscvibe_1stage/              # Single-cycle processor
+│   ├── rtl/                      # SystemVerilog RTL modules
+│   ├── tb/                       # Testbench
+│   ├── sim/traces/               # Simulation trace outputs
+│   ├── architecture.yaml         # Visualizer architecture config
+│   └── Makefile                  # Build system
+├── riscvibe_5stage/              # 5-stage pipelined processor
+│   ├── rtl/                      # SystemVerilog RTL modules
+│   │   ├── riscvibe_5stage_top.sv  # Top module
+│   │   ├── *_stage.sv            # Pipeline stages (IF/ID/EX/MEM/WB)
+│   │   ├── hazard_unit.sv        # Hazard detection
+│   │   ├── forwarding_unit.sv    # Data forwarding
+│   │   └── ...                   # ALU, control, memory modules
+│   ├── tb/                       # Testbench
+│   ├── sim/traces/               # Simulation trace outputs
+│   ├── architecture.yaml         # Visualizer architecture config
+│   └── Makefile                  # Build system
 ├── programs/                     # Test programs (.S and .hex)
 ├── riscvibe_asm/                 # Python assembler
-├── sim/                          # Simulation outputs
-│   └── visualizer/               # Pipeline visualizer web app
-│       ├── app.py                # Flask backend server
-│       ├── trace_parser.py       # JSONL trace file parser
-│       ├── templates/            # HTML templates
-│       └── static/               # CSS and JavaScript
-│           ├── css/style.css     # Stylesheet
-│           └── js/
-│               ├── main.js       # Application logic
-│               └── disasm.js     # RV32I disassembler
+├── sim/visualizer/               # Pipeline visualizer web app
+│   ├── app.py                    # Flask backend server
+│   ├── trace_parser.py           # JSONL trace file parser
+│   └── templates/static/         # HTML/CSS/JavaScript
 ├── project-docs/                 # Design documentation
-├── Makefile                      # Build system
 ├── run_visualizer.sh             # Visualizer launch script
 └── regression_pipeline.py        # Automated test runner
 ```
@@ -112,42 +107,47 @@ sudo pacman -S iverilog gtkwave python
 
 ## Quick Start
 
+Choose a processor: `cd riscvibe_1stage` (single-cycle) or `cd riscvibe_5stage` (pipelined)
+
 ### Run the default test
 ```bash
+cd riscvibe_5stage
 make
 ```
 
 ### Run a specific test program
 ```bash
-make TESTPROG=programs/test_fib.hex
+cd riscvibe_5stage
+make PROGRAM=test_fib
 ```
 
-### Run the full regression suite
+### Generate trace for visualizer
 ```bash
-./regression_pipeline.py
+cd riscvibe_5stage
+make trace PROGRAM=test_fib
 ```
 
 ### View waveforms
 ```bash
+cd riscvibe_5stage
 make wave
 ```
 
 ## Makefile Targets
 
+Both processors support these Makefile targets:
+
 | Target | Description |
 |--------|-------------|
-| `make` or `make all` | Compile and simulate 5-stage pipeline (default) |
+| `make` or `make all` | Compile and simulate (default: test_alu) |
 | `make compile` | Compile only |
 | `make sim` | Run simulation only |
 | `make trace` | Compile and run with trace logging for visualizer |
-| `make visualizer` | Start the pipeline visualizer web server |
-| `make 2stage` | Compile and run legacy 2-stage pipeline |
 | `make wave` | Open waveforms in GTKWave |
 | `make clean` | Remove generated files |
-| `make help` | Show all available targets |
 
 ### Variables
-- `TESTPROG` - Path to test program hex file (default: `programs/test_alu.hex`)
+- `PROGRAM` - Test program name without .hex (default: `test_alu`)
 - `MAX_CYCLES` - Maximum simulation cycles (default: `10000`)
 
 ## Test Programs
@@ -265,24 +265,23 @@ The pipeline visualizer provides an interactive web-based view of pipeline execu
 
 1. **Generate a trace file:**
    ```bash
-   make trace TESTPROG=programs/test_fib.hex
+   cd riscvibe_5stage
+   make trace PROGRAM=test_fib
    ```
-   This creates `sim/trace.jsonl` containing cycle-by-cycle processor state.
+   This creates `sim/traces/test_fib_trace.jsonl` containing cycle-by-cycle processor state.
 
 2. **Start the visualizer:**
    ```bash
-   ./run_visualizer.sh
-   ```
-   Or manually:
-   ```bash
-   make visualizer
+   cd sim/visualizer
+   python app.py
    ```
 
 3. **Open in browser:**
    Navigate to `http://localhost:5050`
 
 4. **Load and explore:**
-   - Click "Load Trace" to load `sim/trace.jsonl`
+   - Click "Load Architecture" and select the architecture file (`riscvibe_1stage/architecture.yaml` or `riscvibe_5stage/architecture.yaml`) matching your trace
+   - Click "Load Trace" to load your trace file (e.g., `riscvibe_5stage/sim/traces/test_fib_trace.jsonl`)
    - Use playback controls or keyboard shortcuts:
      - `Space` - Play/Pause
      - `←` / `→` - Step backward/forward
@@ -383,6 +382,7 @@ RiscVibe implements the complete **RV32I** base integer instruction set (37 inst
 ## Documentation
 
 Additional documentation is available in `project-docs/`:
+- [PROCESSORS.md](project-docs/PROCESSORS.md) - Processor implementations guide (single-stage vs 5-stage)
 - [PIPELINE.md](project-docs/PIPELINE.md) - Pipeline architecture overview
 - [pipeline-impl.md](project-docs/pipeline-impl.md) - Detailed implementation specification
 - [hazards_tb_impl.md](project-docs/hazards_tb_impl.md) - Hazard testing documentation
