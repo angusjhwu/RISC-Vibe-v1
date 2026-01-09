@@ -19,14 +19,7 @@ from architecture_parser import (
 )
 
 
-# Flask application setup
-app = Flask(
-    __name__,
-    template_folder='templates',
-    static_folder='static'
-)
-
-# Configuration
+app = Flask(__name__, template_folder='templates', static_folder='static')
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max upload
 app.config['DEBUG'] = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
 
@@ -35,29 +28,20 @@ _trace_parser: TraceParser | None = None
 _architecture: dict | None = None
 
 
-def get_parser() -> TraceParser | None:
-    """Get the current trace parser instance."""
-    return _trace_parser
+def error_response(error: str, message: str, status: int = 400) -> tuple:
+    """Create a standardized error response."""
+    return jsonify({'error': error, 'message': message}), status
 
 
-def set_parser(parser: TraceParser | None) -> None:
-    """Set the trace parser instance."""
-    global _trace_parser
-    _trace_parser = parser
+def require_file_upload() -> tuple | None:
+    """Validate file upload and return error response if invalid, None if valid."""
+    if 'file' not in request.files:
+        return error_response('No file provided', 'Request must include a file field')
+    if request.files['file'].filename == '':
+        return error_response('No file selected', 'File field is empty')
+    return None
 
 
-def get_architecture() -> dict | None:
-    """Get the current architecture definition."""
-    return _architecture
-
-
-def set_architecture(arch: dict | None) -> None:
-    """Set the architecture definition."""
-    global _architecture
-    _architecture = arch
-
-
-# CORS middleware for local development
 @app.after_request
 def add_cors_headers(response):
     """Add CORS headers to all responses for local development."""
@@ -67,26 +51,21 @@ def add_cors_headers(response):
     return response
 
 
-# Error handlers
 @app.errorhandler(400)
 def bad_request(error):
-    """Handle 400 Bad Request errors."""
-    return jsonify({'error': 'Bad request', 'message': str(error.description)}), 400
+    return error_response('Bad request', str(error.description), 400)
 
 
 @app.errorhandler(404)
 def not_found(error):
-    """Handle 404 Not Found errors."""
-    return jsonify({'error': 'Not found', 'message': str(error.description)}), 404
+    return error_response('Not found', str(error.description), 404)
 
 
 @app.errorhandler(500)
 def internal_error(error):
-    """Handle 500 Internal Server errors."""
-    return jsonify({'error': 'Internal server error', 'message': str(error.description)}), 500
+    return error_response('Internal server error', str(error.description), 500)
 
 
-# Routes
 @app.route('/')
 def index():
     """Serve the main HTML page."""
@@ -95,273 +74,153 @@ def index():
 
 @app.route('/api/architecture', methods=['POST', 'OPTIONS'])
 def load_architecture():
-    """
-    Upload and load an architecture definition file.
+    """Upload and load an architecture definition file."""
+    global _architecture, _trace_parser
 
-    Expects multipart form data with 'file' field containing the YAML architecture.
-
-    Returns:
-        JSON: {"success": true, "architecture": {...}} on success
-        JSON: {"error": "...", "message": "..."} on failure
-    """
-    # Handle CORS preflight
     if request.method == 'OPTIONS':
         return '', 204
 
-    # Check for file in request
-    if 'file' not in request.files:
-        return jsonify({
-            'error': 'No file provided',
-            'message': 'Request must include a file field'
-        }), 400
-
-    file = request.files['file']
-
-    # Check for empty filename
-    if file.filename == '':
-        return jsonify({
-            'error': 'No file selected',
-            'message': 'File field is empty'
-        }), 400
+    file_error = require_file_upload()
+    if file_error:
+        return file_error
 
     try:
-        # Read YAML content
-        yaml_content = file.read().decode('utf-8')
-
-        # Parse and validate
-        architecture = parse_architecture(yaml_content)
-        set_architecture(architecture)
-
-        # Clear any loaded trace since it may not match new architecture
-        set_parser(None)
+        yaml_content = request.files['file'].read().decode('utf-8')
+        _architecture = parse_architecture(yaml_content)
+        _trace_parser = None  # Clear trace since it may not match new architecture
 
         return jsonify({
             'success': True,
-            'architecture': architecture,
-            'summary': get_architecture_summary(architecture)
+            'architecture': _architecture,
+            'summary': get_architecture_summary(_architecture)
         })
-
     except ArchitectureError as e:
-        return jsonify({
-            'error': 'Invalid architecture file',
-            'message': str(e)
-        }), 400
+        return error_response('Invalid architecture file', str(e))
     except Exception as e:
-        return jsonify({
-            'error': 'Failed to parse architecture',
-            'message': str(e)
-        }), 400
+        return error_response('Failed to parse architecture', str(e))
 
 
 @app.route('/api/architecture', methods=['GET'])
 def get_current_architecture():
-    """
-    Get the currently loaded architecture definition.
-
-    Returns:
-        JSON: {"architecture": {...}, "summary": {...}} if loaded
-        JSON: {"error": "...", "message": "..."} if not loaded
-    """
-    architecture = get_architecture()
-
-    if architecture is None:
-        return jsonify({
-            'error': 'No architecture loaded',
-            'message': 'Upload an architecture file first using POST /api/architecture'
-        }), 404
+    """Get the currently loaded architecture definition."""
+    if _architecture is None:
+        return error_response(
+            'No architecture loaded',
+            'Upload an architecture file first using POST /api/architecture',
+            404
+        )
 
     return jsonify({
-        'architecture': architecture,
-        'summary': get_architecture_summary(architecture)
+        'architecture': _architecture,
+        'summary': get_architecture_summary(_architecture)
     })
 
 
 @app.route('/api/load', methods=['POST', 'OPTIONS'])
 def load_trace():
-    """
-    Upload and load a trace file.
+    """Upload and load a trace file. Requires an architecture to be loaded first."""
+    global _trace_parser
 
-    Expects multipart form data with 'file' field containing the JSONL trace.
-    Requires an architecture to be loaded first for validation.
-
-    Returns:
-        JSON: {"success": true, "cycles": N} on success
-        JSON: {"error": "...", "message": "...", "details": [...]} on failure
-    """
-    # Handle CORS preflight
     if request.method == 'OPTIONS':
         return '', 204
 
-    # Check for architecture
-    architecture = get_architecture()
-    if architecture is None:
-        return jsonify({
-            'error': 'No architecture loaded',
-            'message': 'Load an architecture file first using /api/architecture'
-        }), 400
+    if _architecture is None:
+        return error_response(
+            'No architecture loaded',
+            'Load an architecture file first using /api/architecture'
+        )
 
-    # Check for file in request
-    if 'file' not in request.files:
-        return jsonify({
-            'error': 'No file provided',
-            'message': 'Request must include a file field'
-        }), 400
-
-    file = request.files['file']
-
-    # Check for empty filename
-    if file.filename == '':
-        return jsonify({
-            'error': 'No file selected',
-            'message': 'File field is empty'
-        }), 400
+    file_error = require_file_upload()
+    if file_error:
+        return file_error
 
     try:
-        # Save to temporary file
+        file = request.files['file']
         filename = secure_filename(file.filename)
         temp_dir = tempfile.mkdtemp()
         filepath = os.path.join(temp_dir, filename)
         file.save(filepath)
 
-        # Parse the trace
         parser = TraceParser(filepath)
 
         # Validate trace against architecture (check first few cycles)
         validation_errors = []
-        cycles_to_check = min(10, parser.total_cycles)
-
-        for i in range(cycles_to_check):
+        for i in range(min(10, parser.total_cycles)):
             cycle_data = parser.get_cycle(i)
             if cycle_data:
-                errors = validate_trace_against_architecture(
-                    cycle_data, architecture, i + 1
-                )
+                errors = validate_trace_against_architecture(cycle_data, _architecture, i + 1)
                 validation_errors.extend(errors)
 
-        # Clean up temp file
         os.remove(filepath)
         os.rmdir(temp_dir)
 
-        # If validation errors, reject the trace
         if validation_errors:
             return jsonify({
                 'error': 'Trace validation failed',
                 'message': 'Trace file does not match the loaded architecture',
-                'details': validation_errors[:20]  # Limit to first 20 errors
+                'details': validation_errors[:20]
             }), 400
 
-        set_parser(parser)
-
-        return jsonify({
-            'success': True,
-            'cycles': parser.total_cycles
-        })
+        _trace_parser = parser
+        return jsonify({'success': True, 'cycles': parser.total_cycles})
 
     except Exception as e:
-        return jsonify({
-            'error': 'Failed to parse trace',
-            'message': str(e)
-        }), 400
+        return error_response('Failed to parse trace', str(e))
+
+
+def require_trace_loaded() -> tuple | None:
+    """Return error response if no trace is loaded, None otherwise."""
+    if _trace_parser is None:
+        return error_response('No trace loaded', 'Upload a trace file first using /api/load', 404)
+    return None
 
 
 @app.route('/api/cycle/<int:n>', methods=['GET'])
 def get_cycle(n: int):
-    """
-    Get pipeline state at cycle n.
+    """Get pipeline state at cycle n."""
+    trace_error = require_trace_loaded()
+    if trace_error:
+        return trace_error
 
-    Args:
-        n: Cycle number
-
-    Returns:
-        JSON: Cycle state object
-        404: If cycle is out of range or no trace loaded
-    """
-    parser = get_parser()
-
-    if parser is None:
-        return jsonify({
-            'error': 'No trace loaded',
-            'message': 'Upload a trace file first using /api/load'
-        }), 404
-
-    cycle_data = parser.get_cycle(n)
-
+    cycle_data = _trace_parser.get_cycle(n)
     if cycle_data is None:
-        return jsonify({
-            'error': 'Cycle not found',
-            'message': f'Cycle {n} is out of range (0-{parser.total_cycles - 1})'
-        }), 404
+        return error_response(
+            'Cycle not found',
+            f'Cycle {n} is out of range (0-{_trace_parser.total_cycles - 1})',
+            404
+        )
 
     return jsonify(cycle_data)
 
 
 @app.route('/api/cycles', methods=['GET'])
 def get_total_cycles():
-    """
-    Get total number of cycles in the loaded trace.
+    """Get total number of cycles in the loaded trace."""
+    trace_error = require_trace_loaded()
+    if trace_error:
+        return trace_error
 
-    Returns:
-        JSON: {"total": N}
-        404: If no trace is loaded
-    """
-    parser = get_parser()
-
-    if parser is None:
-        return jsonify({
-            'error': 'No trace loaded',
-            'message': 'Upload a trace file first using /api/load'
-        }), 404
-
-    return jsonify({'total': parser.total_cycles})
+    return jsonify({'total': _trace_parser.total_cycles})
 
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    """
-    Get execution statistics for the loaded trace.
+    """Get execution statistics for the loaded trace."""
+    trace_error = require_trace_loaded()
+    if trace_error:
+        return trace_error
 
-    Returns:
-        JSON: Statistics object with total_cycles, stall_cycles,
-              flush_cycles, instructions_retired, cpi
-        404: If no trace is loaded
-    """
-    parser = get_parser()
-
-    if parser is None:
-        return jsonify({
-            'error': 'No trace loaded',
-            'message': 'Upload a trace file first using /api/load'
-        }), 404
-
-    # Pass architecture for dynamic signal names
-    architecture = get_architecture()
-    return jsonify(parser.get_stats(architecture))
+    return jsonify(_trace_parser.get_stats(_architecture))
 
 
 @app.route('/api/range/<int:start>/<int:end>', methods=['GET'])
 def get_range(start: int, end: int):
-    """
-    Get cycles in range [start, end) for buffering.
+    """Get cycles in range [start, end) for buffering."""
+    trace_error = require_trace_loaded()
+    if trace_error:
+        return trace_error
 
-    Args:
-        start: Start cycle (inclusive)
-        end: End cycle (exclusive)
-
-    Returns:
-        JSON: {"cycles": [...]} array of cycle states
-        404: If no trace is loaded
-    """
-    parser = get_parser()
-
-    if parser is None:
-        return jsonify({
-            'error': 'No trace loaded',
-            'message': 'Upload a trace file first using /api/load'
-        }), 404
-
-    cycles = parser.get_range(start, end)
-
-    return jsonify({'cycles': cycles})
+    return jsonify({'cycles': _trace_parser.get_range(start, end)})
 
 
 if __name__ == '__main__':

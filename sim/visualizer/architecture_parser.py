@@ -148,6 +148,28 @@ def _validate_fields(fields: list, stage_id: str, field_type: str) -> None:
             )
 
 
+def _validate_signal_list(
+    signals: list,
+    path: str,
+    required_fields: list[str],
+    stage_ids: set
+) -> None:
+    """Validate a list of signal definitions with required fields and stage references."""
+    if not isinstance(signals, list):
+        raise ArchitectureError(f"{path} must be a list")
+
+    for i, signal in enumerate(signals):
+        if not isinstance(signal, dict):
+            raise ArchitectureError(f"{path}[{i}] must be a mapping")
+
+        for field in required_fields:
+            if field not in signal:
+                raise ArchitectureError(f"{path}[{i}] missing '{field}'")
+
+        if 'stage' in required_fields and signal['stage'] not in stage_ids:
+            raise ArchitectureError(f"{path}[{i}]: stage '{signal['stage']}' not defined")
+
+
 def _validate_hazards(hazards: dict, stage_ids: set) -> None:
     """Validate hazards configuration."""
     if not isinstance(hazards, dict):
@@ -155,30 +177,12 @@ def _validate_hazards(hazards: dict, stage_ids: set) -> None:
 
     for signal_type in ['stall_signals', 'flush_signals']:
         if signal_type in hazards:
-            signals = hazards[signal_type]
-            if not isinstance(signals, list):
-                raise ArchitectureError(f"hazards.{signal_type} must be a list")
-
-            for i, signal in enumerate(signals):
-                if not isinstance(signal, dict):
-                    raise ArchitectureError(
-                        f"hazards.{signal_type}[{i}] must be a mapping"
-                    )
-
-                if 'key' not in signal:
-                    raise ArchitectureError(
-                        f"hazards.{signal_type}[{i}] missing 'key'"
-                    )
-                if 'stage' not in signal:
-                    raise ArchitectureError(
-                        f"hazards.{signal_type}[{i}] missing 'stage'"
-                    )
-
-                stage_ref = signal['stage']
-                if stage_ref not in stage_ids:
-                    raise ArchitectureError(
-                        f"hazards.{signal_type}[{i}]: stage '{stage_ref}' not defined"
-                    )
+            _validate_signal_list(
+                hazards[signal_type],
+                f"hazards.{signal_type}",
+                ['key', 'stage'],
+                stage_ids
+            )
 
 
 def _validate_forwarding(forwarding: dict, stage_ids: set) -> None:
@@ -186,58 +190,48 @@ def _validate_forwarding(forwarding: dict, stage_ids: set) -> None:
     if not isinstance(forwarding, dict):
         raise ArchitectureError("'forwarding' must be a mapping/dictionary")
 
-    # 'enabled' is optional, defaults to true
-    if 'enabled' in forwarding and forwarding['enabled'] is False:
-        return  # No further validation needed if disabled
+    if forwarding.get('enabled') is False:
+        return
 
-    if 'paths' in forwarding:
-        paths = forwarding['paths']
-        if not isinstance(paths, list):
-            raise ArchitectureError("forwarding.paths must be a list")
+    if 'paths' not in forwarding:
+        return
 
-        for i, path in enumerate(paths):
-            if not isinstance(path, dict):
-                raise ArchitectureError(f"forwarding.paths[{i}] must be a mapping")
+    paths = forwarding['paths']
+    if not isinstance(paths, list):
+        raise ArchitectureError("forwarding.paths must be a list")
 
-            if 'key' not in path:
-                raise ArchitectureError(f"forwarding.paths[{i}] missing 'key'")
-            if 'target_stage' not in path:
-                raise ArchitectureError(f"forwarding.paths[{i}] missing 'target_stage'")
+    for i, path in enumerate(paths):
+        if not isinstance(path, dict):
+            raise ArchitectureError(f"forwarding.paths[{i}] must be a mapping")
 
-            target = path['target_stage']
-            if target not in stage_ids:
-                raise ArchitectureError(
-                    f"forwarding.paths[{i}]: target_stage '{target}' not defined"
-                )
+        for field in ['key', 'target_stage']:
+            if field not in path:
+                raise ArchitectureError(f"forwarding.paths[{i}] missing '{field}'")
 
-            # Validate sources if present
-            if 'sources' in path:
-                sources = path['sources']
-                if not isinstance(sources, list):
-                    raise ArchitectureError(
-                        f"forwarding.paths[{i}].sources must be a list"
-                    )
+        if path['target_stage'] not in stage_ids:
+            raise ArchitectureError(
+                f"forwarding.paths[{i}]: target_stage '{path['target_stage']}' not defined"
+            )
 
-                for j, source in enumerate(sources):
-                    if not isinstance(source, dict):
-                        raise ArchitectureError(
-                            f"forwarding.paths[{i}].sources[{j}] must be a mapping"
-                        )
-                    if 'stage' not in source:
-                        raise ArchitectureError(
-                            f"forwarding.paths[{i}].sources[{j}] missing 'stage'"
-                        )
-                    if 'value' not in source:
-                        raise ArchitectureError(
-                            f"forwarding.paths[{i}].sources[{j}] missing 'value'"
-                        )
+        if 'sources' in path:
+            _validate_signal_list(
+                path['sources'],
+                f"forwarding.paths[{i}].sources",
+                ['stage', 'value'],
+                stage_ids
+            )
 
-                    src_stage = source['stage']
-                    if src_stage not in stage_ids:
-                        raise ArchitectureError(
-                            f"forwarding.paths[{i}].sources[{j}]: "
-                            f"stage '{src_stage}' not defined"
-                        )
+
+def _require_positive_int(value: any, field_path: str) -> None:
+    """Validate that a value is a positive integer."""
+    if not isinstance(value, int) or value <= 0:
+        raise ArchitectureError(f"{field_path} must be a positive integer")
+
+
+def _require_list(value: any, field_path: str) -> None:
+    """Validate that a value is a list."""
+    if not isinstance(value, list):
+        raise ArchitectureError(f"{field_path} must be a list")
 
 
 def _validate_register_file(reg_file: dict) -> None:
@@ -245,23 +239,17 @@ def _validate_register_file(reg_file: dict) -> None:
     if not isinstance(reg_file, dict):
         raise ArchitectureError("'register_file' must be a mapping/dictionary")
 
-    if 'enabled' in reg_file and reg_file['enabled'] is False:
-        return  # No further validation needed if disabled
+    if reg_file.get('enabled') is False:
+        return
 
     if 'count' in reg_file:
-        count = reg_file['count']
-        if not isinstance(count, int) or count <= 0:
-            raise ArchitectureError("register_file.count must be a positive integer")
+        _require_positive_int(reg_file['count'], "register_file.count")
 
     if 'width' in reg_file:
-        width = reg_file['width']
-        if not isinstance(width, int) or width <= 0:
-            raise ArchitectureError("register_file.width must be a positive integer")
+        _require_positive_int(reg_file['width'], "register_file.width")
 
     if 'abi_names' in reg_file:
-        names = reg_file['abi_names']
-        if not isinstance(names, list):
-            raise ArchitectureError("register_file.abi_names must be a list")
+        _require_list(reg_file['abi_names'], "register_file.abi_names")
 
 
 def _validate_validation_config(validation: dict) -> None:
@@ -269,13 +257,9 @@ def _validate_validation_config(validation: dict) -> None:
     if not isinstance(validation, dict):
         raise ArchitectureError("'validation' must be a mapping/dictionary")
 
-    if 'required_top_level' in validation:
-        if not isinstance(validation['required_top_level'], list):
-            raise ArchitectureError("validation.required_top_level must be a list")
-
-    if 'required_per_stage' in validation:
-        if not isinstance(validation['required_per_stage'], list):
-            raise ArchitectureError("validation.required_per_stage must be a list")
+    for field in ['required_top_level', 'required_per_stage']:
+        if field in validation:
+            _require_list(validation[field], f"validation.{field}")
 
 
 def validate_trace_against_architecture(

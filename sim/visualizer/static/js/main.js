@@ -856,22 +856,28 @@ function formatWriteback(stageData) {
 }
 
 /**
+ * Parse a hex string value. Returns NaN if invalid.
+ */
+function parseHexValue(value) {
+    if (!value) return NaN;
+    return parseInt(value, 16);
+}
+
+/**
  * Format PC as compact hex (e.g., "0x0010")
  */
 function formatPC(pc) {
-    if (!pc) return '---';
-    const val = parseInt(pc, 16);
-    if (isNaN(val)) return pc;
+    const val = parseHexValue(pc);
+    if (isNaN(val)) return pc || '---';
     return '0x' + val.toString(16).padStart(4, '0');
 }
 
 /**
- * Format as full hex
+ * Format as full hex (8 digits)
  */
 function formatHex(value) {
-    if (!value) return '---';
-    const val = parseInt(value, 16);
-    if (isNaN(val)) return value;
+    const val = parseHexValue(value);
+    if (isNaN(val)) return value || '---';
     return '0x' + val.toString(16).padStart(8, '0');
 }
 
@@ -879,9 +885,8 @@ function formatHex(value) {
  * Format as decimal
  */
 function formatDecimal(value) {
-    if (!value) return '---';
-    const val = parseInt(value, 16);
-    if (isNaN(val)) return value;
+    const val = parseHexValue(value);
+    if (isNaN(val)) return value || '---';
     return val.toString(10);
 }
 
@@ -889,9 +894,8 @@ function formatDecimal(value) {
  * Format address compactly
  */
 function formatAddr(addr) {
-    if (!addr) return '---';
-    const val = parseInt(addr, 16);
-    if (isNaN(val)) return addr;
+    const val = parseHexValue(addr);
+    if (isNaN(val)) return addr || '---';
     return '0x' + val.toString(16);
 }
 
@@ -899,12 +903,39 @@ function formatAddr(addr) {
  * Format result value compactly (decimal if small, hex if large)
  */
 function formatResult(result) {
-    if (!result) return '---';
-    const val = parseInt(result, 16);
-    if (isNaN(val)) return result;
-    // Show small values in decimal, large in hex
-    if (val <= 999) return val.toString(10);
-    return '0x' + val.toString(16);
+    const val = parseHexValue(result);
+    if (isNaN(val)) return result || '---';
+    return val <= 999 ? val.toString(10) : '0x' + val.toString(16);
+}
+
+/**
+ * Check if a stage has active stall or flush signals.
+ */
+function getStageHazardState(stageId, hazard) {
+    const arch = state.architecture;
+    if (!arch || !arch.hazards) {
+        return { stalled: false, flushed: false };
+    }
+
+    const hazardData = hazard || {};
+    let stalled = false;
+    let flushed = false;
+
+    for (const signal of arch.hazards.stall_signals || []) {
+        if (signal.stage === stageId && hazardData[signal.key]) {
+            stalled = true;
+            break;
+        }
+    }
+
+    for (const signal of arch.hazards.flush_signals || []) {
+        if (signal.stage === stageId && hazardData[signal.key]) {
+            flushed = true;
+            break;
+        }
+    }
+
+    return { stalled, flushed };
 }
 
 /**
@@ -914,30 +945,7 @@ function updateStageClass(stageId, valid, hazard) {
     const stageEl = state.stageElements[stageId];
     if (!stageEl) return;
 
-    hazard = hazard || {};
-
-    // Check if this stage is stalled or flushed based on architecture
-    let stalled = false;
-    let flushed = false;
-
-    const arch = state.architecture;
-    if (arch && arch.hazards) {
-        // Check stall signals
-        for (const signal of arch.hazards.stall_signals || []) {
-            if (signal.stage === stageId && hazard[signal.key]) {
-                stalled = true;
-                break;
-            }
-        }
-
-        // Check flush signals
-        for (const signal of arch.hazards.flush_signals || []) {
-            if (signal.stage === stageId && hazard[signal.key]) {
-                flushed = true;
-                break;
-            }
-        }
-    }
+    const { stalled, flushed } = getStageHazardState(stageId, hazard);
 
     stageEl.classList.remove('valid', 'invalid', 'stalled', 'flushed');
 
@@ -1281,30 +1289,13 @@ function updateProgramLetters(cycle) {
                 pcToStages.set(pc, []);
             }
 
-            // Check if stalled or flushed based on architecture
-            let stalled = false;
-            let flushed = false;
-
-            if (arch.hazards) {
-                for (const signal of arch.hazards.stall_signals || []) {
-                    if (signal.stage === stageCfg.id && hazard[signal.key]) {
-                        stalled = true;
-                        break;
-                    }
-                }
-                for (const signal of arch.hazards.flush_signals || []) {
-                    if (signal.stage === stageCfg.id && hazard[signal.key]) {
-                        flushed = true;
-                        break;
-                    }
-                }
-            }
+            const { stalled, flushed } = getStageHazardState(stageCfg.id, hazard);
 
             pcToStages.get(pc).push({
                 stage: stageCfg.id,
                 valid: stageData.valid,
-                stalled: stalled,
-                flushed: flushed
+                stalled,
+                flushed
             });
         }
     }
@@ -1356,8 +1347,8 @@ function updateProgramLetters(cycle) {
 // UI Utilities
 // =============================================================================
 
-function showLoading(message) {
-    if (elements.loadingMessage) elements.loadingMessage.textContent = message || 'Loading...';
+function showLoading(message = 'Loading...') {
+    if (elements.loadingMessage) elements.loadingMessage.textContent = message;
     if (elements.loadingOverlay) elements.loadingOverlay.classList.remove('hidden');
 }
 
@@ -1368,7 +1359,7 @@ function hideLoading() {
 function showError(message) {
     if (elements.errorMessage) elements.errorMessage.textContent = message;
     if (elements.errorToast) elements.errorToast.classList.remove('hidden');
-    setTimeout(hideError, 8000);  // Longer timeout for validation errors
+    setTimeout(hideError, 8000);
 }
 
 function hideError() {
