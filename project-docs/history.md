@@ -1903,3 +1903,98 @@ project-docs/
 3. **Trace Format Difference:**
    - Single-stage has one "cpu" object with all state
    - 5-stage has separate "if", "id", "ex", "mem", "wb" objects
+
+---
+
+## Session 15: Register Click-to-Highlight Feature (2026-01-08)
+
+### User Request
+Add a click-to-highlight feature for registers in the visualizer GUI. When a user clicks on a register, it should display an orange border to help monitor that specific register throughout cycle execution.
+
+### Implementation
+
+#### Feature Overview
+Added interactive register selection with visual highlighting:
+- Click any register to highlight it with an orange border
+- Click again to deselect (remove highlight)
+- Selection persists across cycle changes for easy tracking
+- Hover effect provides visual feedback that registers are clickable
+
+#### Changes Made
+
+**sim/visualizer/static/js/main.js:**
+
+1. **State Management (line 27):**
+   - Added `selectedRegister: null` to track currently selected register index
+
+2. **Click Handler (lines 531, 540-550):**
+   - Added event listener to each register cell in `initRegisterGrid()`
+   - Implemented `handleRegisterClick(regIndex)` for toggle behavior
+   - Toggle logic: deselect if clicking same register, otherwise select clicked register
+
+3. **Visual Update Function (lines 555-570):**
+   - Added `updateRegisterSelection()` to apply/remove `selected` class
+   - Iterates through all registers and updates CSS classes based on state
+
+4. **Render Persistence (lines 987-992):**
+   - Modified `renderRegisters()` to maintain selection state during cycle changes
+   - Ensures orange border persists when navigating through trace
+
+**sim/visualizer/static/css/style.css:**
+
+1. **Clickable Indicator (line 754):**
+   - Added `cursor: pointer` to `.register-cell` class
+
+2. **Hover Effect (lines 757-759):**
+   - Added `.register-cell:hover` rule for subtle background change
+   - Provides visual feedback before clicking
+
+3. **Selection Styling (lines 761-765):**
+   - Added `.register-cell.selected` rule with orange border
+   - Border: 2px solid `#f97316` (orange)
+   - Box-shadow for additional emphasis: `0 0 0 1px #f97316`
+
+### User Experience
+
+**Workflow:**
+1. User clicks on any register (e.g., x5) to select it
+2. Register displays prominent orange border
+3. User steps through cycles using playback controls
+4. Orange border remains on x5, making it easy to monitor its value changes
+5. User clicks x5 again to deselect, or clicks different register to move selection
+
+**Visual States:**
+- **Default:** Gray border, light gray background
+- **Hover:** Slightly darker gray background
+- **Selected:** Orange border with box-shadow
+- **Changed:** Yellow background animation (existing feature, works with selection)
+
+### Files Modified
+
+```
+sim/visualizer/static/js/main.js     # State + click handling + render persistence
+sim/visualizer/static/css/style.css   # Hover + selection styling
+```
+
+### Design Decisions
+
+1. **Toggle Behavior:** Single-selection model (only one register highlighted at a time) keeps UI clean and focused. Could be extended to multi-select if needed.
+
+2. **Orange Color:** Chosen to be distinct from existing colors:
+   - Green: Valid pipeline stages
+   - Red: Stalled/hazard states
+   - Yellow: Register value changed
+   - Orange (#f97316): Selected register
+
+3. **Persistent Selection:** Selection state maintained across cycle changes rather than clearing on navigation, as the primary use case is tracking a specific register over time.
+
+4. **Visual Feedback:** Cursor and hover effects make it immediately obvious that registers are interactive elements.
+
+### Integration with Existing Features
+
+The selection feature works harmoniously with:
+- **Change Highlighting:** Yellow flash animation still plays when selected register changes
+- **Hex/Decimal Toggle:** Selection persists when switching display formats
+- **Architecture Loading:** Selection clears when new architecture is loaded (register grid is rebuilt)
+
+---

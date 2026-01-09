@@ -23,7 +23,8 @@ const state = {
     architecture: null,     // Loaded architecture definition
     stageElements: {},      // Dynamic stage DOM element references
     hazardElements: {},     // Dynamic hazard DOM element references
-    forwardElements: {}     // Dynamic forward DOM element references
+    forwardElements: {},    // Dynamic forward DOM element references
+    selectedRegister: null  // Index of currently selected register for monitoring
 };
 
 // Default ABI register names (can be overridden by architecture)
@@ -526,7 +527,46 @@ function initRegisterGrid(arch) {
             <span class="register-name">x${i}</span>
             <span class="register-value mono" id="reg-val-${i}">0x00000000</span>
         `;
+
+        // Add click handler for register selection
+        cell.addEventListener('click', () => handleRegisterClick(i));
+
         elements.registerGrid.appendChild(cell);
+    }
+}
+
+/**
+ * Handle click on a register cell to toggle selection.
+ */
+function handleRegisterClick(regIndex) {
+    // Toggle: if clicking the already-selected register, deselect it
+    if (state.selectedRegister === regIndex) {
+        state.selectedRegister = null;
+    } else {
+        state.selectedRegister = regIndex;
+    }
+
+    // Update visual state of all register cells
+    updateRegisterSelection();
+}
+
+/**
+ * Update the visual selection state of register cells.
+ */
+function updateRegisterSelection() {
+    const arch = state.architecture;
+    const regFile = arch?.register_file || {};
+    const count = regFile.count || 32;
+
+    for (let i = 0; i < count; i++) {
+        const cell = document.getElementById(`reg-${i}`);
+        if (!cell) continue;
+
+        if (state.selectedRegister === i) {
+            cell.classList.add('selected');
+        } else {
+            cell.classList.remove('selected');
+        }
     }
 }
 
@@ -982,6 +1022,13 @@ function renderRegisters(cycle) {
             cell.classList.remove('changed');
             void cell.offsetWidth; // Force reflow
             cell.classList.add('changed');
+        }
+
+        // Maintain selection state
+        if (state.selectedRegister === i) {
+            cell.classList.add('selected');
+        } else {
+            cell.classList.remove('selected');
         }
     }
 }

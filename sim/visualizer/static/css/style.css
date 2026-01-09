@@ -751,6 +751,17 @@ input:checked + .toggle-slider::before {
     border-radius: var(--radius-sm);
     font-size: 0.6875rem;
     transition: background-color var(--transition-normal);
+    cursor: pointer;
+}
+
+.register-cell:hover {
+    background-color: var(--color-gray-100);
+}
+
+.register-cell.selected {
+    border: 2px solid #f97316;
+    border-color: #f97316;
+    box-shadow: 0 0 0 1px #f97316;
 }
 
 .register-cell.changed {
