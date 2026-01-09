@@ -5,7 +5,8 @@
 # This script sets up a Python virtual environment and starts the visualizer.
 #
 # Usage:
-#   ./run_visualizer.sh
+#   ./sim/run_visualizer.sh  (from project root)
+#   ./run_visualizer.sh      (from sim/ directory)
 #
 # Prerequisites:
 #   - Python 3.6+
@@ -15,8 +16,8 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/sim/visualizer/.venv"
-VISUALIZER_DIR="$SCRIPT_DIR/sim/visualizer"
+VENV_DIR="$SCRIPT_DIR/visualizer/.venv"
+VISUALIZER_DIR="$SCRIPT_DIR/visualizer"
 
 echo "========================================"
 echo "RISC-Vibe Pipeline Visualizer"
@@ -37,7 +38,7 @@ echo "Installing dependencies..."
 pip install --quiet -r "$VISUALIZER_DIR/requirements.txt"
 
 # Check for trace file
-if [ ! -f "$SCRIPT_DIR/sim/trace.jsonl" ]; then
+if [ ! -f "$SCRIPT_DIR/trace.jsonl" ]; then
     echo ""
     echo "WARNING: No trace file found at sim/trace.jsonl"
     echo "Generate one with: make trace TESTPROG=programs/test_fib.hex"

@@ -1999,6 +1999,34 @@ The selection feature works harmoniously with:
 
 ---
 
+## Session 17: Move Visualizer Launch Script to sim/ Directory (2026-01-08)
+
+### User Request
+Move `run_visualizer.sh` from the project root into the `sim/` directory.
+
+### Implementation
+
+Relocated the script and updated all directory-based paths to account for the new location:
+
+**Path Changes:**
+| Variable | Before | After |
+|----------|--------|-------|
+| `VENV_DIR` | `$SCRIPT_DIR/sim/visualizer/.venv` | `$SCRIPT_DIR/visualizer/.venv` |
+| `VISUALIZER_DIR` | `$SCRIPT_DIR/sim/visualizer` | `$SCRIPT_DIR/visualizer` |
+| Trace file check | `$SCRIPT_DIR/sim/trace.jsonl` | `$SCRIPT_DIR/trace.jsonl` |
+
+**Usage Comment Updated:**
+```bash
+# Usage:
+#   ./sim/run_visualizer.sh  (from project root)
+#   ./run_visualizer.sh      (from sim/ directory)
+```
+
+### Files Modified
+- `run_visualizer.sh` → `sim/run_visualizer.sh` (moved and updated paths)
+
+---
+
 ## Session 16: Program Directory Reorganization and Regression Scripts (2026-01-08)
 
 ### User Request
