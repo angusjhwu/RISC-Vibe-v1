@@ -1998,3 +1998,141 @@ The selection feature works harmoniously with:
 - **Architecture Loading:** Selection clears when new architecture is loaded (register grid is rebuilt)
 
 ---
+
+## Session 16: Program Directory Reorganization and Regression Scripts (2026-01-08)
+
+### User Request
+1. Reorganize duplicate programs across `./programs/`, `./riscvibe_1stage/programs/`, and `./riscvibe_5stage/programs/`
+2. Create processor-specific regression scripts to verify each processor's functional correctness
+
+### Phase 1: Program Directory Cleanup
+
+**Problem:** All three directories had identical copies of 33 files, including hazard tests that don't apply to the single-stage processor and functional programs that should be shared.
+
+**Solution:**
+
+1. **Removed symlinks** from `riscvibe_1stage/programs` and `riscvibe_5stage/programs` (previously pointed to `../programs`)
+
+2. **Reorganized by purpose:**
+
+   **`./programs/` (4 files) - Functional demo programs:**
+   - `gemini_bubblesort.S` - Bubblesort using registers
+   - `test_bubblesort.S` - Bubblesort with memory/stack
+   - `test_fib.S` - Fibonacci sequence
+   - `test_fib_max.S` - Fibonacci max calculation
+
+   **`./riscvibe_1stage/programs/` (4 files) - Basic processor tests:**
+   - `test_simple.S` - Basic immediate loads
+   - `test_add.S` - ADD instruction test
+   - `test_branch.S` - Branch instruction test
+   - `test_alu.S` - Full ALU operations test
+
+   **`./riscvibe_5stage/programs/` (14 files) - Pipeline tests including hazards:**
+   - Basic tests: `test_simple.S`, `test_add.S`, `test_branch.S`, `test_alu.S`
+   - `test_fib_5stage.S` - Fibonacci with pipeline NOPs
+   - Hazard tests (9 files): `test_hazard_ex_ex.S`, `test_hazard_mem_ex.S`, `test_hazard_load_use.S`, `test_hazard_branch.S`, `test_hazard_jal.S`, `test_hazard_jalr.S`, `test_hazard_x0.S`, `test_hazard_chain.S`, `test_hazard_comprehensive.S`
+
+3. **Removed all .hex files** - Can be regenerated from .S sources using `riscvibe_asm`
+
+4. **Created .S sources for orphan .hex files:**
+   - `test_simple.S`, `test_add.S`, `test_branch.S`, `test_fib_5stage.S`
+
+### Phase 2: Regression Scripts
+
+Created Python regression scripts for each processor that:
+- Auto-discover all `.S` files in the `programs/` directory
+- Assemble `.S` → `.hex` using `riscvibe_asm`
+- Compile and simulate using the processor's Makefile
+- Parse register values from simulation output
+- Validate against test-specific expected values
+- Generate detailed logs and summary reports
+- Clean up generated `.hex` files after tests
+
+**`riscvibe_1stage/regression.py`:**
+- Runs 4 basic tests
+- Expected values defined for each test
+- All tests passed (~4.6s total)
+
+**`riscvibe_5stage/regression.py`:**
+- Runs 14 tests (5 basic + 9 hazard)
+- Categorized output (Basic Tests vs Pipeline Hazard Tests)
+- All tests passed (~16s total)
+
+**Usage:**
+```bash
+cd riscvibe_1stage && ./regression.py        # Run all 1-stage tests
+cd riscvibe_5stage && ./regression.py        # Run all 5-stage tests
+./regression.py --list                        # List available tests
+./regression.py --test hazard                 # Run tests matching "hazard"
+./regression.py -v                            # Verbose output
+./regression.py --keep-hex                    # Keep generated .hex files
+```
+
+### Test Results
+
+**1-Stage Processor (4 tests):**
+| Test | Cycles | Result |
+|------|--------|--------|
+| test_simple | 3 | PASS |
+| test_add | 4 | PASS |
+| test_branch | 5 | PASS |
+| test_alu | 16 | PASS |
+
+**5-Stage Pipeline (14 tests):**
+| Test | Cycles | Result |
+|------|--------|--------|
+| test_simple | 0 | PASS |
+| test_add | 12 | PASS |
+| test_branch | 15 | PASS |
+| test_alu | 23 | PASS |
+| test_fib_5stage | 83 | PASS |
+| test_hazard_ex_ex | 35 | PASS |
+| test_hazard_mem_ex | 23 | PASS |
+| test_hazard_load_use | 39 | PASS |
+| test_hazard_branch | 56 | PASS |
+| test_hazard_jal | 25 | PASS |
+| test_hazard_jalr | 24 | PASS |
+| test_hazard_x0 | 31 | PASS |
+| test_hazard_chain | 35 | PASS |
+| test_hazard_comprehensive | 84 | PASS |
+
+### Files Created
+
+```
+riscvibe_1stage/
+├── programs/
+│   ├── test_simple.S
+│   ├── test_add.S
+│   ├── test_branch.S
+│   └── test_alu.S
+└── regression.py
+
+riscvibe_5stage/
+├── programs/
+│   ├── test_simple.S
+│   ├── test_add.S
+│   ├── test_branch.S
+│   ├── test_alu.S
+│   ├── test_fib_5stage.S
+│   └── test_hazard_*.S (9 files)
+└── regression.py
+```
+
+### Files Modified
+
+```
+programs/
+├── (removed all .hex files)
+├── (removed all test_hazard_*.S files)
+├── (removed test_alu.S, test_simple.S, test_add.S, test_branch.S, test_fib_5stage.S)
+└── (kept: gemini_bubblesort.S, test_bubblesort.S, test_fib.S, test_fib_max.S)
+```
+
+### Design Decisions
+
+1. **Separate program directories:** Each processor has its own test suite appropriate to its architecture
+2. **No .hex files in git:** Assembly sources are the single source of truth; hex files generated on demand
+3. **Processor-specific expectations:** Each regression script defines expected register values for its tests
+4. **Automatic cleanup:** Generated .hex files removed after tests to keep directories clean
+
+---
